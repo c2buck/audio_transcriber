@@ -51,7 +51,7 @@ def get_audio_files(directory: str) -> List[str]:
 
 def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str, 
                       total_time: float, success_count: int, failure_count: int) -> str:
-    """Create an HTML report with all transcriptions and hyperlinks to audio files."""
+    """Create an HTML report with all transcriptions, enhanced hyperlinks, and timestamped segments."""
     
     html_content = f"""
 <!DOCTYPE html>
@@ -123,16 +123,94 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             font-weight: bold;
             font-size: 1.1em;
             color: #2c3e50;
+            margin-bottom: 8px;
+        }}
+        .file-actions {{
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
         }}
         .audio-link {{
             color: #007bff;
             text-decoration: none;
             font-size: 0.9em;
+            padding: 5px 10px;
+            border: 1px solid #007bff;
+            border-radius: 4px;
+            transition: all 0.3s;
         }}
         .audio-link:hover {{
-            text-decoration: underline;
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
         }}
-        .transcription-text {{
+        .folder-link {{
+            color: #6c757d;
+            text-decoration: none;
+            font-size: 0.9em;
+            padding: 5px 10px;
+            border: 1px solid #6c757d;
+            border-radius: 4px;
+            transition: all 0.3s;
+        }}
+        .folder-link:hover {{
+            background-color: #6c757d;
+            color: white;
+            text-decoration: none;
+        }}
+        .transcription-content {{
+            background: #f8f9fa;
+            border-radius: 4px;
+            overflow: hidden;
+        }}
+        .segment {{
+            display: flex;
+            border-bottom: 1px solid #e9ecef;
+            min-height: 50px;
+        }}
+        .segment:last-child {{
+            border-bottom: none;
+        }}
+        .timestamp-col {{
+            background: #e9ecef;
+            padding: 10px 15px;
+            min-width: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            font-weight: bold;
+            color: #495057;
+        }}
+        .timestamp-link {{
+            color: #007bff;
+            text-decoration: none;
+            padding: 4px 8px;
+            border-radius: 3px;
+            transition: all 0.2s;
+            cursor: pointer;
+            display: block;
+            width: 100%;
+            text-align: center;
+        }}
+        .timestamp-link:hover {{
+            background-color: #007bff;
+            color: white;
+            text-decoration: none;
+        }}
+        .text-col {{
+            padding: 10px 15px;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            background: white;
+        }}
+        .segment-text {{
+            word-wrap: break-word;
+            line-height: 1.4;
+        }}
+        .full-text {{
             background: #f8f9fa;
             padding: 15px;
             border-radius: 4px;
@@ -155,7 +233,114 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             text-align: right;
             margin-top: 20px;
         }}
+        .segment-toggle {{
+            margin: 10px 0;
+        }}
+        .toggle-btn {{
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }}
+        .toggle-btn:hover {{
+            background: #5a6268;
+        }}
     </style>
+    <script>
+        function openFileLocation(filePath) {{
+            // Try to open the file directly (may auto-play depending on system settings)
+            window.open(filePath, '_blank');
+            
+            // For Windows, we can try to open in explorer
+            if (navigator.platform.indexOf('Win') !== -1) {{
+                // This will work in some browsers/contexts
+                try {{
+                    const explorerPath = 'file:///' + filePath.replace(/\//g, '\\\\');
+                    window.open(explorerPath, '_blank');
+                }} catch(e) {{
+                    console.log('Could not open in explorer:', e);
+                }}
+            }}
+        }}
+        
+                 function toggleView(transcriptionId, showSegments) {{
+             const segmentView = document.getElementById('segments-' + transcriptionId);
+             const fullView = document.getElementById('full-' + transcriptionId);
+             const toggleBtn = document.getElementById('toggle-' + transcriptionId);
+             
+             if (showSegments) {{
+                 segmentView.style.display = 'block';
+                 fullView.style.display = 'none';
+                 toggleBtn.textContent = 'Show Full Text';
+                 toggleBtn.onclick = () => toggleView(transcriptionId, false);
+             }} else {{
+                 segmentView.style.display = 'none';
+                 fullView.style.display = 'block';
+                 toggleBtn.textContent = 'Show Timestamped Segments';
+                 toggleBtn.onclick = () => toggleView(transcriptionId, true);
+             }}
+         }}
+         
+                   function playFromTimestamp(filePath, startTimeSeconds) {{
+              const timeParam = Math.floor(startTimeSeconds);
+              const minutes = Math.floor(timeParam / 60);
+              const seconds = timeParam % 60;
+              
+              // Convert path for different systems
+              let systemPath = filePath;
+              if (navigator.platform.indexOf('Win') !== -1) {{
+                  // Windows path conversion
+                  systemPath = filePath.replace(/\//g, '\\\\');
+              }}
+              
+              // Method 1: Try VLC protocol (if VLC is installed)
+              try {{
+                  const vlcUrl = `vlc://${{systemPath}}?start-time=${{timeParam}}`;
+                  window.location.href = vlcUrl;
+                  return;
+              }} catch(e) {{
+                  console.log('VLC protocol not available');
+              }}
+              
+              // Method 2: Try Windows Media Player protocol
+              if (navigator.platform.indexOf('Win') !== -1) {{
+                  try {{
+                      const wmpUrl = `mms://${{systemPath}}#t=${{timeParam}}`;
+                      window.location.href = wmpUrl;
+                      return;
+                  }} catch(e) {{
+                      console.log('WMP protocol not available');
+                  }}
+              }}
+              
+              // Method 3: Try standard file protocol with time fragment
+              try {{
+                  const fileUrl = `file:///${{filePath}}#t=${{timeParam}}`;
+                  window.open(fileUrl, '_blank');
+                  
+                  // Also try alternative time formats
+                  setTimeout(() => {{
+                      const timeFormatted = `${{minutes}}m${{seconds}}s`;
+                      const altUrl = `file:///${{filePath}}#t=${{timeFormatted}}`;
+                      console.log('Also trying:', altUrl);
+                  }}, 500);
+                  
+              }} catch(e) {{
+                  console.log('File protocol with time failed');
+                  
+                  // Method 4: Fallback - just open the file
+                  try {{
+                      window.open(`file:///${{filePath}}`, '_blank');
+                      alert(`File opened. Please seek to ${{minutes}}:${{seconds.toString().padStart(2, '0')}} manually.`);
+                  }} catch(fallbackError) {{
+                      alert(`Cannot open file automatically. Please open manually:\\n${{systemPath}}\\nSeek to: ${{minutes}}:${{seconds.toString().padStart(2, '0')}}`);
+                  }}
+              }}
+          }}
+    </script>
 </head>
 <body>
     <div class="container">
@@ -184,27 +369,76 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         </div>
 """
     
-    for item in transcriptions:
+    for idx, item in enumerate(transcriptions):
         status_class = "success" if item['success'] else "error"
         audio_file_uri = Path(item['file_path']).as_uri()
+        audio_file_path = str(Path(item['file_path'])).replace('\\', '/')
+        folder_path = str(Path(item['file_path']).parent).replace('\\', '/')
         
         html_content += f"""
         <div class="transcription {status_class}">
             <div class="file-info">
                 <div class="filename">{Path(item['file_path']).name}</div>
-                <a href="{audio_file_uri}" class="audio-link">🎵 Play Audio File</a>
+                <div class="file-actions">
+                    <a href="{audio_file_uri}" class="audio-link" title="Play audio file">🎵 Play Audio</a>
+                    <a href="javascript:void(0)" onclick="openFileLocation('{audio_file_path}')" class="folder-link" title="Open file location">📁 Open Location</a>
+                </div>
                 {f'<div class="duration">Duration: {format_time(item.get("duration", 0))}</div>' if item.get("duration") else ''}
             </div>
-            <div class="transcription-text">
 """
         
         if item['success']:
-            html_content += item['transcription']
+            segments = item.get('segments', [])
+            if segments:
+                # Show timestamped segments view
+                html_content += f"""
+            <div class="segment-toggle">
+                <button id="toggle-{idx}" class="toggle-btn" onclick="toggleView({idx}, true)">Show Timestamped Segments</button>
+            </div>
+            
+            <div id="segments-{idx}" class="transcription-content" style="display: none;">
+"""
+                for segment in segments:
+                    start_time = format_time(segment.get('start', 0))
+                    start_seconds = segment.get('start', 0)
+                    segment_text = segment.get('text', '').strip()
+                    html_content += f"""
+                <div class="segment">
+                    <div class="timestamp-col">
+                        <a href="javascript:void(0)" 
+                           onclick="playFromTimestamp('{audio_file_path}', {start_seconds})" 
+                           class="timestamp-link" 
+                           title="Click to play from {start_time}">
+                            {start_time}
+                        </a>
+                    </div>
+                    <div class="text-col">
+                        <div class="segment-text">{segment_text}</div>
+                    </div>
+                </div>
+"""
+                html_content += """
+            </div>
+            
+            <div id="full-{}" class="full-text">
+{}
+            </div>
+""".format(idx, item['transcription'])
+            else:
+                # No segments available, show full text only
+                html_content += f"""
+            <div class="full-text">
+{item['transcription']}
+            </div>
+"""
         else:
-            html_content += f'<div class="error-message">Error: {item.get("error", "Unknown error occurred")}</div>'
+            html_content += f"""
+            <div class="full-text">
+                <div class="error-message">Error: {item.get("error", "Unknown error occurred")}</div>
+            </div>
+"""
         
         html_content += """
-            </div>
         </div>
 """
     

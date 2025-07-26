@@ -111,7 +111,7 @@ class AudioTranscriber:
             # Get file duration
             duration = get_file_duration(audio_file)
             
-            # Transcribe the audio
+            # Transcribe the audio with segment information
             result = self.model.transcribe(audio_file)
             
             processing_time = time.time() - start_time
@@ -124,6 +124,7 @@ class AudioTranscriber:
                 'success': True,
                 'error': None,
                 'transcription': result["text"],
+                'segments': result.get("segments", []),  # Add segment information
                 'duration': duration,
                 'processing_time': processing_time,
                 'language': result.get('language', 'unknown')
