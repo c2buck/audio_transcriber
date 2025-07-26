@@ -5,3 +5,4 @@ torchaudio>=2.7.1
 PySide6>=6.9.1
 ffmpeg-python>=0.2.0
 numpy>=2.0.0
+psutil>=5.9.0

@@ -2,6 +2,7 @@ import os
 import time
 import torch
 import whisper
+import threading
 from pathlib import Path
 from typing import List, Dict, Any, Callable, Optional
 from utils import get_audio_files, get_file_duration, safe_filename
@@ -49,41 +50,82 @@ class AudioTranscriber:
         Returns:
             bool: True if model loaded successfully, False otherwise
         """
+        import time
+        load_start_time = time.time()
+        
         try:
             if progress_callback:
-                progress_callback(f"Loading Whisper model '{self.model_name}' on {self.device.upper()}...")
+                progress_callback(f"Initializing Whisper model '{self.model_name}' on {self.device.upper()}...")
             
-            # Log device information
-            if self.device == "cuda":
-                device_info = f"CUDA GPU: {torch.cuda.get_device_name(0)}"
-            elif self.device == "mps":
-                device_info = "Apple Silicon GPU (MPS)"
-            else:
-                device_info = f"CPU ({os.cpu_count()} cores)"
+            # Log detailed device information
+            device_info = self._get_detailed_device_info()
             
-            print(f"🔄 Loading Whisper model '{self.model_name}' on {device_info}")
+            if progress_callback:
+                progress_callback(f"Target device: {device_info}")
+            
+            # Check available memory before loading
+            if self.device == "cuda" and torch.cuda.is_available():
+                free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)
+                free_gb = free_memory / (1024**3)
+                if progress_callback:
+                    progress_callback(f"Available GPU memory: {free_gb:.1f} GB")
+            
+            if progress_callback:
+                progress_callback(f"Downloading/loading model weights for '{self.model_name}'...")
             
             self.model = whisper.load_model(self.model_name, device=self.device)
             self.is_model_loaded = True
             
-            success_msg = f"✅ Model '{self.model_name}' loaded successfully on {device_info}"
-            print(success_msg)
+            load_time = time.time() - load_start_time
+            
+            # Log post-load memory usage
+            memory_info = ""
+            if self.device == "cuda" and torch.cuda.is_available():
+                allocated = torch.cuda.memory_allocated(0) / (1024**3)
+                cached = torch.cuda.memory_reserved(0) / (1024**3)
+                memory_info = f" (GPU memory: {allocated:.1f} GB allocated, {cached:.1f} GB cached)"
+            
+            success_msg = f"Model '{self.model_name}' loaded successfully in {load_time:.1f}s{memory_info}"
             
             if progress_callback:
                 progress_callback(success_msg)
             
             return True
         except Exception as e:
-            error_msg = f"❌ Error loading model: {str(e)}"
-            print(error_msg)
+            load_time = time.time() - load_start_time
+            error_msg = f"Failed to load model '{self.model_name}' after {load_time:.1f}s: {str(e)}"
+            
             if progress_callback:
                 progress_callback(error_msg)
+                
+            # Provide troubleshooting suggestions
+            if "CUDA" in str(e) or "cuda" in str(e):
+                if progress_callback:
+                    progress_callback("💡 CUDA error detected. Try selecting CPU device or restart the application")
+            elif "memory" in str(e).lower():
+                if progress_callback:
+                    progress_callback("💡 Memory error. Try using a smaller model (tiny/base) or close other applications")
+            
             return False
+    
+    def _get_detailed_device_info(self) -> str:
+        """Get detailed information about the selected device."""
+        if self.device == "cuda":
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+                return f"CUDA GPU: {gpu_name} ({gpu_memory:.1f} GB)"
+            else:
+                return "CUDA (unavailable)"
+        elif self.device == "mps":
+            return "Apple Silicon GPU (MPS)"
+        else:
+            return f"CPU ({os.cpu_count()} cores)"
     
     def transcribe_file(self, audio_file: str, 
                        progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """
-        Transcribe a single audio file.
+        Transcribe a single audio file with comprehensive logging.
         
         Args:
             audio_file: Path to the audio file
@@ -103,31 +145,105 @@ class AudioTranscriber:
         
         start_time = time.time()
         file_name = Path(audio_file).name
+        file_size = os.path.getsize(audio_file) / (1024 * 1024)  # MB
         
         try:
             if progress_callback:
-                progress_callback(f"Transcribing: {file_name}")
+                progress_callback(f"Processing: {file_name} ({file_size:.1f} MB)")
             
-            # Get file duration
+            # Get file duration and format information
             duration = get_file_duration(audio_file)
-            
-            # Transcribe the audio with segment information
-            result = self.model.transcribe(audio_file)
-            
-            processing_time = time.time() - start_time
+            file_ext = Path(audio_file).suffix.lower()
             
             if progress_callback:
-                progress_callback(f"Completed: {file_name} ({processing_time:.1f}s)")
+                progress_callback(f"File info: {duration:.1f}s duration, {file_ext} format")
+            
+            # Log memory usage before transcription (for GPU)
+            if self.device == "cuda" and torch.cuda.is_available():
+                mem_before = torch.cuda.memory_allocated(0) / (1024**3)
+                if progress_callback:
+                                         progress_callback(f"GPU memory before transcription: {mem_before:.1f} GB")
+            
+            # Start transcription with timing
+            transcription_start = time.time()
+            if progress_callback:
+                progress_callback(f"Starting Whisper transcription...")
+                
+                # Pre-transcription info for longer files
+                if duration > 60:
+                    progress_callback(f"📂 Loading {duration/60:.1f} minute audio file...")
+                if file_size > 10:  # MB
+                    progress_callback(f"💾 Processing large file ({file_size:.1f} MB)")
+                if duration > 300:  # 5 minutes
+                    progress_callback(f"⏱️ Long audio - this may take several minutes")
+            
+            # Create periodic progress updates for long transcriptions
+            progress_finished = threading.Event()
+            progress_tracker_thread = None
+            
+            if duration > 30 and progress_callback:
+                def progress_tracker():
+                    start_time = time.time()
+                    while not progress_finished.wait(8):  # Update every 8 seconds
+                        elapsed = time.time() - start_time
+                        if elapsed < 30:
+                            progress_callback(f"🔄 Transcribing... ({elapsed:.0f}s elapsed)")
+                        elif elapsed < 90:
+                            progress_callback(f"📝 Processing audio segments... ({elapsed:.0f}s elapsed)")
+                        else:
+                            progress_callback(f"🧠 Deep analysis... ({elapsed/60:.1f}m elapsed)")
+                
+                progress_tracker_thread = threading.Thread(target=progress_tracker, daemon=True)
+                progress_tracker_thread.start()
+            
+            try:
+                # Transcribe the audio
+                result = self.model.transcribe(audio_file)
+            finally:
+                # Stop progress tracker
+                if progress_tracker_thread:
+                    progress_finished.set()
+            
+            transcription_time = time.time() - transcription_start
+            processing_time = time.time() - start_time
+            
+            # Calculate performance metrics
+            realtime_factor = duration / transcription_time if transcription_time > 0 else 0
+            words_count = len(result["text"].split()) if result["text"] else 0
+            
+            # Log memory usage after transcription (for GPU)
+            if self.device == "cuda" and torch.cuda.is_available():
+                mem_after = torch.cuda.memory_allocated(0) / (1024**3)
+                if progress_callback:
+                    progress_callback(f"GPU memory after transcription: {mem_after:.1f} GB")
+            
+            # Determine detected language and segments
+            language = result.get('language', 'unknown')
+            segments = result.get("segments", [])
+            
+            if progress_callback:
+                progress_callback(f"✅ Transcription complete: {words_count} words detected")
+                progress_callback(f"🌍 Language detected: {language}")
+                progress_callback(f"⚡ Processing speed: {realtime_factor:.1f}x realtime")
+                progress_callback(f"⏱️ Total time: {processing_time:.1f}s (transcription: {transcription_time:.1f}s)")
+                
+                # Log segment information if available
+                if segments:
+                    progress_callback(f"📝 Generated {len(segments)} text segments")
             
             return {
                 'file_path': audio_file,
                 'success': True,
                 'error': None,
                 'transcription': result["text"],
-                'segments': result.get("segments", []),  # Add segment information
+                'segments': segments,
                 'duration': duration,
                 'processing_time': processing_time,
-                'language': result.get('language', 'unknown')
+                'transcription_time': transcription_time,
+                'language': language,
+                'words_count': words_count,
+                'realtime_factor': realtime_factor,
+                'file_size_mb': file_size
             }
             
         except Exception as e:
@@ -135,7 +251,17 @@ class AudioTranscriber:
             error_msg = str(e)
             
             if progress_callback:
-                progress_callback(f"Error transcribing {file_name}: {error_msg}")
+                progress_callback(f"❌ Error transcribing {file_name}: {error_msg}")
+                
+                # Provide specific error diagnostics
+                if "out of memory" in error_msg.lower() or "memory" in error_msg.lower():
+                    progress_callback("💡 Memory error: Try using a smaller model or processing fewer files")
+                elif "cuda" in error_msg.lower():
+                    progress_callback("💡 CUDA error: Try switching to CPU mode")
+                elif "file" in error_msg.lower() or "format" in error_msg.lower():
+                    progress_callback("💡 File error: Check if the audio file is corrupted or in an unsupported format")
+                elif "ffmpeg" in error_msg.lower():
+                    progress_callback("💡 FFmpeg error: Audio format may not be supported")
             
             return {
                 'file_path': audio_file,
@@ -143,7 +269,8 @@ class AudioTranscriber:
                 'error': error_msg,
                 'transcription': None,
                 'duration': get_file_duration(audio_file),
-                'processing_time': processing_time
+                'processing_time': processing_time,
+                'file_size_mb': file_size
             }
     
     def transcribe_batch(self, input_directory: str, output_directory: str,
@@ -163,7 +290,7 @@ class AudioTranscriber:
         """
         start_time = time.time()
         
-        # Get all audio files
+        # Get all audio files with detailed analysis
         audio_files = get_audio_files(input_directory)
         
         if not audio_files:
@@ -176,8 +303,40 @@ class AudioTranscriber:
                 'failure_count': 0
             }
         
+        # Analyze the batch before processing
+        total_size = sum(os.path.getsize(f) for f in audio_files) / (1024 * 1024)  # MB
+        file_types = {}
+        total_duration = 0
+        
         if progress_callback:
-            progress_callback(f"Found {len(audio_files)} audio files to transcribe")
+            progress_callback(f"Analyzing {len(audio_files)} audio files...")
+        
+        for audio_file in audio_files:
+            file_ext = Path(audio_file).suffix.lower()
+            file_types[file_ext] = file_types.get(file_ext, 0) + 1
+            try:
+                duration = get_file_duration(audio_file)
+                total_duration += duration
+            except:
+                pass  # Skip files with duration issues
+        
+        if progress_callback:
+            progress_callback(f"Batch analysis complete:")
+            progress_callback(f"  └── Total files: {len(audio_files)}")
+            progress_callback(f"  └── Total size: {total_size:.1f} MB")
+            progress_callback(f"  └── Estimated duration: {total_duration/60:.1f} minutes")
+            
+            # Log file type breakdown
+            type_summary = ", ".join([f"{ext}({count})" for ext, count in sorted(file_types.items())])
+            progress_callback(f"  └── File types: {type_summary}")
+            
+            # Estimate processing time
+            if hasattr(self, 'device') and self.device == 'cuda':
+                estimated_time = total_duration * 0.2  # Rough GPU estimate
+                progress_callback(f"  └── Estimated processing time (GPU): {estimated_time/60:.1f} minutes")
+            else:
+                estimated_time = total_duration * 1.5  # Rough CPU estimate  
+                progress_callback(f"  └── Estimated processing time (CPU): {estimated_time/60:.1f} minutes")
         
         # Ensure output directory exists
         os.makedirs(output_directory, exist_ok=True)
@@ -216,8 +375,52 @@ class AudioTranscriber:
         
         total_time = time.time() - start_time
         
+        # Calculate comprehensive batch statistics
+        successful_results = [r for r in results if r['success']]
+        failed_results = [r for r in results if not r['success']]
+        
+        # Performance metrics
+        total_audio_duration = sum(r.get('duration', 0) for r in successful_results)
+        total_transcription_time = sum(r.get('transcription_time', 0) for r in successful_results)
+        avg_realtime_factor = sum(r.get('realtime_factor', 0) for r in successful_results) / len(successful_results) if successful_results else 0
+        total_words = sum(r.get('words_count', 0) for r in successful_results)
+        
+        # Language detection statistics
+        languages = {}
+        for result in successful_results:
+            lang = result.get('language', 'unknown')
+            languages[lang] = languages.get(lang, 0) + 1
+        
         if progress_callback:
-            progress_callback(f"Batch transcription completed. Success: {success_count}, Failed: {failure_count}")
+            progress_callback("=== BATCH TRANSCRIPTION COMPLETE ===")
+            progress_callback(f"Processing summary:")
+            progress_callback(f"  └── Total files: {len(audio_files)}")
+            progress_callback(f"  └── Successful: {success_count}")
+            progress_callback(f"  └── Failed: {failure_count}")
+            progress_callback(f"  └── Success rate: {(success_count/len(audio_files)*100):.1f}%")
+            
+            if successful_results:
+                progress_callback(f"Performance metrics:")
+                progress_callback(f"  └── Total audio duration: {total_audio_duration/60:.1f} minutes")
+                progress_callback(f"  └── Total processing time: {total_time/60:.1f} minutes")
+                progress_callback(f"  └── Average speed: {avg_realtime_factor:.1f}x realtime")
+                progress_callback(f"  └── Total words transcribed: {total_words:,}")
+                progress_callback(f"  └── Average words per minute: {(total_words/(total_time/60)):.0f}" if total_time > 0 else "  └── Average words per minute: N/A")
+                
+                # Language breakdown
+                if languages:
+                    lang_summary = ", ".join([f"{lang}({count})" for lang, count in sorted(languages.items())])
+                    progress_callback(f"  └── Languages detected: {lang_summary}")
+            
+            # Report any failures
+            if failed_results:
+                progress_callback(f"Failed files:")
+                for failed in failed_results[:3]:  # Show first 3 failures
+                    file_name = Path(failed['file_path']).name
+                    error = failed.get('error', 'Unknown error')
+                    progress_callback(f"  └── {file_name}: {error}")
+                if len(failed_results) > 3:
+                    progress_callback(f"  └── ... and {len(failed_results) - 3} more failures")
         
         return {
             'success': True,
@@ -226,7 +429,12 @@ class AudioTranscriber:
             'total_time': total_time,
             'success_count': success_count,
             'failure_count': failure_count,
-            'audio_files_count': len(audio_files)
+            'audio_files_count': len(audio_files),
+            'total_audio_duration': total_audio_duration,
+            'total_transcription_time': total_transcription_time,
+            'avg_realtime_factor': avg_realtime_factor,
+            'total_words': total_words,
+            'languages_detected': languages
         }
     
     def _save_individual_transcription(self, result: Dict[str, Any], output_directory: str):

@@ -91,6 +91,9 @@ class AudioTranscriberGUI(QMainWindow):
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_status)
         self.timer.start(1000)  # Update every second
+        
+        # Log system information on startup
+        self.log_system_info()
     
     def init_ui(self):
         """Initialize the user interface."""
@@ -403,13 +406,38 @@ class AudioTranscriberGUI(QMainWindow):
         model_name = self.model_combo.currentText()
         self.model_description.setText(self.get_model_description(model_name))
         self.transcriber = None  # Reset transcriber to reload model
+        self.log(f"Whisper model changed to: {model_name}", "INFO")
+        
+        # Provide model-specific guidance
+        model_guidance = {
+            "tiny": "Fastest processing, suitable for quick testing",
+            "base": "Good balance of speed and quality for most use cases",
+            "small": "Better accuracy, moderate processing time",
+            "medium": "High accuracy, longer processing time",
+            "large": "Best accuracy, longest processing time"
+        }
+        if model_name in model_guidance:
+            self.log(f"💡 {model_guidance[model_name]}", "INFO")
     
     def on_device_changed(self):
         """Handle device selection change."""
         self.transcriber = None  # Reset transcriber to use new device
         self.update_device_info()
-        # Save device preference
+        
+        # Log device change
+        device_name = self.device_combo.currentText()
         device = self.device_combo.currentData()
+        self.log(f"Processing device changed to: {device_name}", "INFO")
+        
+        # Provide device-specific guidance
+        if device == "cuda":
+            self.log("💡 GPU acceleration enabled - expect faster processing", "SUCCESS")
+        elif device == "mps":
+            self.log("💡 Apple Silicon acceleration enabled", "SUCCESS")
+        else:
+            self.log("💡 CPU processing selected - consider GPU for faster performance", "INFO")
+        
+        # Save device preference
         if device:
             self.settings.setValue("preferred_device", device)
     
@@ -526,9 +554,20 @@ class AudioTranscriberGUI(QMainWindow):
         if input_folder and input_folder != "No folder selected":
             try:
                 audio_files = get_audio_files(input_folder)
-                self.log(f"Found {len(audio_files)} audio files in selected folder")
+                if len(audio_files) > 0:
+                    self.log(f"Found {len(audio_files)} audio files in selected folder", "SUCCESS")
+                    # Log supported file types found
+                    file_types = {}
+                    for file in audio_files:
+                        ext = Path(file).suffix.lower()
+                        file_types[ext] = file_types.get(ext, 0) + 1
+                    
+                    type_summary = ", ".join([f"{ext}({count})" for ext, count in sorted(file_types.items())])
+                    self.log(f"File types: {type_summary}", "INFO")
+                else:
+                    self.log("No supported audio files found in selected folder", "WARNING")
             except Exception as e:
-                self.log(f"Error scanning folder: {e}")
+                self.log(f"Error scanning folder: {e}", "ERROR")
     
     def start_transcription(self):
         """Start the transcription process."""
@@ -552,7 +591,11 @@ class AudioTranscriberGUI(QMainWindow):
         # Reset progress
         self.overall_progress.setValue(0)
         self.file_progress_label.setText("Initializing...")
-        self.log("Starting transcription process...")
+        self.log("=== TRANSCRIPTION SESSION STARTED ===", "SYSTEM")
+        self.log(f"Input folder: {input_folder}", "INFO")
+        self.log(f"Output folder: {output_folder}", "INFO")
+        self.log(f"Whisper model: {self.model_combo.currentText()}", "INFO")
+        self.log(f"Processing device: {self.device_combo.currentText()}", "INFO")
         
         # Update UI state
         self.start_btn.setEnabled(False)
@@ -572,7 +615,7 @@ class AudioTranscriberGUI(QMainWindow):
         """Stop the transcription process."""
         if self.worker_thread:
             self.worker_thread.cancel()
-            self.log("Stopping transcription...")
+            self.log("Transcription process cancelled by user", "WARNING")
     
     def update_file_progress(self, current: int, total: int):
         """Update file progress display."""
@@ -607,7 +650,17 @@ Transcription Summary:
             """.strip()
             
             self.results_label.setText(results_text)
-            self.log(f"Transcription completed! {success_count} successful, {failure_count} failed")
+            self.log("=== TRANSCRIPTION SESSION COMPLETED ===", "SYSTEM")
+            self.log(f"Total files processed: {success_count + failure_count}", "INFO")
+            self.log(f"Successfully transcribed: {success_count}", "SUCCESS")
+            if failure_count > 0:
+                self.log(f"Failed transcriptions: {failure_count}", "WARNING")
+            self.log(f"Total processing time: {total_time}", "INFO")
+            
+            # Calculate average processing speed
+            if result['total_time'] > 0 and success_count > 0:
+                avg_time_per_file = result['total_time'] / (success_count + failure_count)
+                self.log(f"Average time per file: {avg_time_per_file:.1f} seconds", "INFO")
             
             # Create HTML report
             output_folder = self.output_folder_label.text()
@@ -619,10 +672,26 @@ Transcription Summary:
             if html_path:
                 self.html_report_path = html_path
                 self.open_html_btn.setEnabled(True)
-                self.log(f"HTML report created: {html_path}")
+                self.log(f"HTML report created: {html_path}", "SUCCESS")
+            else:
+                self.log("Failed to create HTML report", "WARNING")
         else:
-            self.log(f"Transcription failed: {result.get('error', 'Unknown error')}")
-            QMessageBox.critical(self, "Error", f"Transcription failed:\n{result.get('error', 'Unknown error')}")
+            error_msg = result.get('error', 'Unknown error')
+            self.log("=== TRANSCRIPTION SESSION FAILED ===", "SYSTEM")
+            self.log(f"Error: {error_msg}", "ERROR")
+            
+            # Log additional diagnostic information if available
+            if 'results' in result and result['results']:
+                failed_files = [r for r in result['results'] if not r['success']]
+                if failed_files:
+                    self.log(f"Files that failed: {len(failed_files)}", "ERROR")
+                    for failed_file in failed_files[:5]:  # Show first 5 failed files
+                        file_name = Path(failed_file['file_path']).name
+                        self.log(f"  └── {file_name}: {failed_file.get('error', 'Unknown error')}", "ERROR")
+                    if len(failed_files) > 5:
+                        self.log(f"  └── ... and {len(failed_files) - 5} more files", "ERROR")
+            
+            QMessageBox.critical(self, "Error", f"Transcription failed:\n{error_msg}")
         
         # Clean up worker thread
         self.worker_thread = None
@@ -633,17 +702,85 @@ Transcription Summary:
             import webbrowser
             webbrowser.open(f"file:///{self.html_report_path}")
     
-    def log(self, message: str):
-        """Add a message to the log display."""
+    def log(self, message: str, level: str = "INFO"):
+        """Add a message to the log display with enhanced formatting."""
         import datetime
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] {message}"
-        self.log_text.append(formatted_message)
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]  # Include milliseconds
         
-        # Auto-scroll to bottom
+        # Color coding based on log level
+        color_map = {
+            "INFO": "#ffffff",      # White
+            "SUCCESS": "#28a745",   # Green
+            "WARNING": "#ffc107",   # Yellow
+            "ERROR": "#dc3545",     # Red
+            "DEBUG": "#6c757d",     # Gray
+            "SYSTEM": "#17a2b8"     # Cyan
+        }
+        
+        # Icon mapping for different log levels
+        icon_map = {
+            "INFO": "ℹ️",
+            "SUCCESS": "✅",
+            "WARNING": "⚠️",
+            "ERROR": "❌",
+            "DEBUG": "🔍",
+            "SYSTEM": "🖥️"
+        }
+        
+        color = color_map.get(level, "#ffffff")
+        icon = icon_map.get(level, "•")
+        
+        # Format message with HTML for colored output
+        formatted_message = f'<span style="color: {color};">[{timestamp}] {icon} {level}: {message}</span>'
+        
+        # Append as HTML to preserve colors
         cursor = self.log_text.textCursor()
         cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertHtml(formatted_message + "<br>")
+        
+        # Auto-scroll to bottom
         self.log_text.setTextCursor(cursor)
+        
+        # Also print to console for debugging
+        print(f"[{timestamp}] {level}: {message}")
+    
+    def log_system_info(self):
+        """Log comprehensive system information at startup."""
+        import platform
+        
+        self.log("=== SYSTEM INFORMATION ===", "SYSTEM")
+        self.log(f"Operating System: {platform.system()} {platform.release()}", "SYSTEM")
+        self.log(f"Python Version: {platform.python_version()}", "SYSTEM")
+        self.log(f"CPU: {platform.processor()}", "SYSTEM")
+        self.log(f"CPU Cores: {os.cpu_count()}", "SYSTEM")
+        
+        # Try to get memory information with psutil
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            self.log(f"Total RAM: {memory.total / (1024**3):.1f} GB", "SYSTEM")
+            self.log(f"Available RAM: {memory.available / (1024**3):.1f} GB", "SYSTEM")
+            self.log(f"RAM Usage: {memory.percent:.1f}%", "SYSTEM")
+        except ImportError:
+            self.log("Extended memory info unavailable (psutil not installed)", "DEBUG")
+        except Exception as e:
+            self.log(f"Error getting memory info: {str(e)}", "DEBUG")
+        
+        # Device information
+        if torch.cuda.is_available():
+            gpu_count = torch.cuda.device_count()
+            self.log(f"CUDA GPUs Available: {gpu_count}", "SYSTEM")
+            for i in range(gpu_count):
+                gpu_name = torch.cuda.get_device_name(i)
+                gpu_memory = torch.cuda.get_device_properties(i).total_memory / (1024**3)
+                self.log(f"  └── GPU {i}: {gpu_name} ({gpu_memory:.1f} GB)", "SYSTEM")
+        else:
+            self.log("No CUDA GPUs detected", "SYSTEM")
+        
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            self.log("Apple Silicon GPU (MPS) Available", "SYSTEM")
+        
+        self.log("=== END SYSTEM INFO ===", "SYSTEM")
     
     def clear_logs(self):
         """Clear the log display."""
