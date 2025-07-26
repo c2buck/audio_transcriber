@@ -200,7 +200,7 @@ class AudioTranscriberGUI(QMainWindow):
         # Input folder
         file_layout.addWidget(QLabel("Input Folder:"), 0, 0)
         self.input_folder_label = QLabel("No folder selected")
-        self.input_folder_label.setStyleSheet("background: #f0f0f0; padding: 8px; border: 1px solid #ccc;")
+        self.input_folder_label.setStyleSheet("background: #f0f0f0; padding: 8px; border: 1px solid #ccc; color: black;")
         file_layout.addWidget(self.input_folder_label, 0, 1)
         
         self.select_input_btn = QPushButton("Browse...")
@@ -210,7 +210,7 @@ class AudioTranscriberGUI(QMainWindow):
         # Output folder
         file_layout.addWidget(QLabel("Output Folder:"), 1, 0)
         self.output_folder_label = QLabel("No folder selected")
-        self.output_folder_label.setStyleSheet("background: #f0f0f0; padding: 8px; border: 1px solid #ccc;")
+        self.output_folder_label.setStyleSheet("background: #f0f0f0; padding: 8px; border: 1px solid #ccc; color: black;")
         file_layout.addWidget(self.output_folder_label, 1, 1)
         
         self.select_output_btn = QPushButton("Browse...")

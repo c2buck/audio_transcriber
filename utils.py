@@ -183,21 +183,15 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             font-weight: bold;
             color: #495057;
         }}
-        .timestamp-link {{
-            color: #007bff;
-            text-decoration: none;
+        .timestamp-text {{
+            color: #495057;
             padding: 4px 8px;
             border-radius: 3px;
-            transition: all 0.2s;
-            cursor: pointer;
+            background: rgba(255, 255, 255, 0.7);
             display: block;
             width: 100%;
             text-align: center;
-        }}
-        .timestamp-link:hover {{
-            background-color: #007bff;
-            color: white;
-            text-decoration: none;
+            border: 1px solid #dee2e6;
         }}
         .text-col {{
             padding: 10px 15px;
@@ -234,22 +228,30 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             margin-top: 20px;
         }}
         .segment-toggle {{
-            margin: 10px 0;
+            margin: 15px 0;
+            text-align: center;
         }}
         .toggle-btn {{
-            background: #6c757d;
+            background: #007bff;
             color: white;
             border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
+            padding: 10px 20px;
+            border-radius: 6px;
             cursor: pointer;
             font-size: 0.9em;
+            font-weight: 500;
+            transition: background-color 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0,123,255,0.2);
         }}
         .toggle-btn:hover {{
-            background: #5a6268;
+            background: #0056b3;
+            box-shadow: 0 3px 6px rgba(0,123,255,0.3);
         }}
-    </style>
-    <script>
+        .toggle-btn:active {{
+            transform: translateY(1px);
+        }}
+     </style>
+         <script>
         function openFileLocation(filePath) {{
             // Try to open the file directly (may auto-play depending on system settings)
             window.open(filePath, '_blank');
@@ -266,80 +268,24 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             }}
         }}
         
-                 function toggleView(transcriptionId, showSegments) {{
-             const segmentView = document.getElementById('segments-' + transcriptionId);
-             const fullView = document.getElementById('full-' + transcriptionId);
-             const toggleBtn = document.getElementById('toggle-' + transcriptionId);
-             
-             if (showSegments) {{
-                 segmentView.style.display = 'block';
-                 fullView.style.display = 'none';
-                 toggleBtn.textContent = 'Show Full Text';
-                 toggleBtn.onclick = () => toggleView(transcriptionId, false);
-             }} else {{
-                 segmentView.style.display = 'none';
-                 fullView.style.display = 'block';
-                 toggleBtn.textContent = 'Show Timestamped Segments';
-                 toggleBtn.onclick = () => toggleView(transcriptionId, true);
-             }}
-         }}
-         
-                   function playFromTimestamp(filePath, startTimeSeconds) {{
-              const timeParam = Math.floor(startTimeSeconds);
-              const minutes = Math.floor(timeParam / 60);
-              const seconds = timeParam % 60;
-              
-              // Convert path for different systems
-              let systemPath = filePath;
-              if (navigator.platform.indexOf('Win') !== -1) {{
-                  // Windows path conversion
-                  systemPath = filePath.replace(/\//g, '\\\\');
-              }}
-              
-              // Method 1: Try VLC protocol (if VLC is installed)
-              try {{
-                  const vlcUrl = `vlc://${{systemPath}}?start-time=${{timeParam}}`;
-                  window.location.href = vlcUrl;
-                  return;
-              }} catch(e) {{
-                  console.log('VLC protocol not available');
-              }}
-              
-              // Method 2: Try Windows Media Player protocol
-              if (navigator.platform.indexOf('Win') !== -1) {{
-                  try {{
-                      const wmpUrl = `mms://${{systemPath}}#t=${{timeParam}}`;
-                      window.location.href = wmpUrl;
-                      return;
-                  }} catch(e) {{
-                      console.log('WMP protocol not available');
-                  }}
-              }}
-              
-              // Method 3: Try standard file protocol with time fragment
-              try {{
-                  const fileUrl = `file:///${{filePath}}#t=${{timeParam}}`;
-                  window.open(fileUrl, '_blank');
-                  
-                  // Also try alternative time formats
-                  setTimeout(() => {{
-                      const timeFormatted = `${{minutes}}m${{seconds}}s`;
-                      const altUrl = `file:///${{filePath}}#t=${{timeFormatted}}`;
-                      console.log('Also trying:', altUrl);
-                  }}, 500);
-                  
-              }} catch(e) {{
-                  console.log('File protocol with time failed');
-                  
-                  // Method 4: Fallback - just open the file
-                  try {{
-                      window.open(`file:///${{filePath}}`, '_blank');
-                      alert(`File opened. Please seek to ${{minutes}}:${{seconds.toString().padStart(2, '0')}} manually.`);
-                  }} catch(fallbackError) {{
-                      alert(`Cannot open file automatically. Please open manually:\\n${{systemPath}}\\nSeek to: ${{minutes}}:${{seconds.toString().padStart(2, '0')}}`);
-                  }}
-              }}
-          }}
+        function toggleTranscriptionView(transcriptionId) {{
+            const segmentView = document.getElementById('segments-' + transcriptionId);
+            const fullView = document.getElementById('full-' + transcriptionId);
+            const toggleBtn = document.getElementById('toggle-' + transcriptionId);
+            
+            // Check current state and toggle
+            if (segmentView.style.display === 'none' || segmentView.style.display === '') {{
+                // Show segments view
+                segmentView.style.display = 'block';
+                fullView.style.display = 'none';
+                toggleBtn.textContent = 'Show Full Text';
+            }} else {{
+                // Show full text view
+                segmentView.style.display = 'none';
+                fullView.style.display = 'block';
+                toggleBtn.textContent = 'Show Timestamped Segments';
+            }}
+        }}
     </script>
 </head>
 <body>
@@ -393,7 +339,7 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 # Show timestamped segments view
                 html_content += f"""
             <div class="segment-toggle">
-                <button id="toggle-{idx}" class="toggle-btn" onclick="toggleView({idx}, true)">Show Timestamped Segments</button>
+                <button id="toggle-{idx}" class="toggle-btn" onclick="toggleTranscriptionView({idx})">Show Timestamped Segments</button>
             </div>
             
             <div id="segments-{idx}" class="transcription-content" style="display: none;">
@@ -405,25 +351,20 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                     html_content += f"""
                 <div class="segment">
                     <div class="timestamp-col">
-                        <a href="javascript:void(0)" 
-                           onclick="playFromTimestamp('{audio_file_path}', {start_seconds})" 
-                           class="timestamp-link" 
-                           title="Click to play from {start_time}">
-                            {start_time}
-                        </a>
+                        <div class="timestamp-text">{start_time}</div>
                     </div>
                     <div class="text-col">
                         <div class="segment-text">{segment_text}</div>
                     </div>
                 </div>
 """
-                html_content += """
+                html_content += f"""
             </div>
             
-            <div id="full-{}" class="full-text">
-{}
+            <div id="full-{idx}" class="full-text">
+{item['transcription']}
             </div>
-""".format(idx, item['transcription'])
+"""
             else:
                 # No segments available, show full text only
                 html_content += f"""
