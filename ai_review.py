@@ -12,7 +12,8 @@ from ollama_client import OllamaClient
 class TranscriptSegment:
     """Represents a single recording segment from the combined transcript."""
     
-    def __init__(self, filename: str, content: str, segment_index: int):
+    def __init__(self, filename: str, content: str, segment_index: int, 
+                 detailed_segments: Optional[List[Dict[str, Any]]] = None):
         """
         Initialize transcript segment.
         
@@ -20,14 +21,66 @@ class TranscriptSegment:
             filename: Original audio filename
             content: Transcript content for this segment
             segment_index: Index of this segment in the overall transcript
+            detailed_segments: List of timestamped segments within this recording
         """
         self.filename = filename
         self.content = content.strip()
         self.segment_index = segment_index
         self.word_count = len(self.content.split()) if self.content else 0
+        self.detailed_segments = detailed_segments or []
         
     def __str__(self):
         return f"Segment {self.segment_index}: {self.filename} ({self.word_count} words)"
+
+
+class CrimeRelevantSection:
+    """Represents a section of transcript that is relevant to a crime investigation."""
+    
+    def __init__(self, filename: str, text: str, start_time: float, end_time: float, 
+                 relevance_explanation: str, audio_file_path: Optional[str] = None):
+        """
+        Initialize crime-relevant section.
+        
+        Args:
+            filename: Original audio filename
+            text: Relevant text content
+            start_time: Start time in seconds
+            end_time: End time in seconds
+            relevance_explanation: AI explanation of why this is relevant
+            audio_file_path: Path to the audio file for direct linking
+        """
+        self.filename = filename
+        self.text = text.strip()
+        self.start_time = start_time
+        self.end_time = end_time
+        self.relevance_explanation = relevance_explanation
+        self.audio_file_path = audio_file_path
+        
+    def get_audio_link(self, timestamp_offset: float = 0) -> str:
+        """Generate a direct link to the audio file at the specific timestamp."""
+        if not self.audio_file_path:
+            return f"#{self.filename}@{self._format_timestamp(self.start_time)}"
+        
+        # Create file URI with timestamp parameter
+        file_uri = Path(self.audio_file_path).as_uri()
+        start_seconds = int(self.start_time + timestamp_offset)
+        return f"{file_uri}#t={start_seconds}"
+    
+    def _format_timestamp(self, seconds: float) -> str:
+        """Format seconds as MM:SS or HH:MM:SS."""
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        if minutes >= 60:
+            hours = minutes // 60
+            minutes = minutes % 60
+            return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
+    
+    def get_timestamp_range(self) -> str:
+        """Get formatted timestamp range."""
+        start_str = self._format_timestamp(self.start_time)
+        end_str = self._format_timestamp(self.end_time)
+        return f"{start_str} - {end_str}"
 
 
 class AIReviewManager:
@@ -285,7 +338,7 @@ class AIReviewManager:
 
     def build_analysis_prompt(self, case_facts: str, segment: TranscriptSegment, progress_callback: Optional[Callable] = None) -> str:
         """
-        Build the analysis prompt for a transcript segment with logging.
+        Build the enhanced analysis prompt for crime-relevant content identification.
         
         Args:
             case_facts: User-provided case facts
@@ -295,7 +348,7 @@ class AIReviewManager:
         Returns:
             Formatted prompt string with detailed construction logging
         """
-        self._log_debug(f"Building analysis prompt for {segment.filename}", progress_callback)
+        self._log_debug(f"Building crime analysis prompt for {segment.filename}", progress_callback)
         
         try:
             # Validate inputs
@@ -308,16 +361,44 @@ class AIReviewManager:
             prompt = f"""CASE FACTS:
 {case_facts.strip()}
 
-TRANSCRIPT:
+TRANSCRIPT FROM {segment.filename}:
 {segment.content}
 
-QUESTION:
-Does this recording contain anything relevant to the case facts? Quote any relevant lines and explain why."""
+ANALYSIS INSTRUCTIONS:
+1. Carefully analyze this transcript for ANY content that may be relevant to the crime or investigation described in the case facts
+2. Look for:
+   - Direct evidence related to the crime
+   - Witness statements or observations
+   - Suspect behavior or statements
+   - Timeline information
+   - Physical evidence descriptions
+   - Names, locations, or other identifying details
+   - Contradictions or inconsistencies
+   - Suspicious activities or behavior
+
+3. For EACH relevant section you find:
+   - Quote the EXACT text from the transcript
+   - Explain WHY it's relevant to the case
+   - Estimate the approximate timestamp within this recording where this content appears
+
+RESPONSE FORMAT:
+If relevant content is found, respond with:
+RELEVANT SECTIONS:
+1. Text: "[exact quote from transcript]"
+   Relevance: [explanation of why this is relevant]
+   Estimated Time: [approximate time in recording when this occurs]
+
+2. [additional sections if found]
+
+If no relevant content is found, respond with:
+NO RELEVANT CONTENT FOUND
+
+Be thorough and consider all possible connections to the case facts."""
 
             prompt_length = len(prompt)
             prompt_words = len(prompt.split())
             
-            self._log_debug(f"Prompt constructed: {prompt_length} chars, {prompt_words} words", progress_callback)
+            self._log_debug(f"Enhanced prompt constructed: {prompt_length} chars, {prompt_words} words", progress_callback)
             self._log_debug(f"Case facts length: {len(case_facts)} chars", progress_callback)
             self._log_debug(f"Transcript content length: {len(segment.content)} chars", progress_callback)
 
@@ -327,7 +408,7 @@ Does this recording contain anything relevant to the case facts? Quote any relev
             error_msg = f"Error building prompt for {segment.filename}: {str(e)}"
             self._log_error(error_msg, progress_callback)
             # Return a basic prompt as fallback
-            return f"Analyze this transcript segment from {segment.filename} for relevance to the case."
+            return f"Analyze this transcript segment from {segment.filename} for crime-relevant content."
 
     def analyze_segment(self, segment: TranscriptSegment, case_facts: str,
                        model_name: str = "mistral",
@@ -391,6 +472,11 @@ Does this recording contain anything relevant to the case facts? Quote any relev
                 # Analyze response for relevance indicators
                 relevance_score = self._analyze_response_relevance(ai_result.get('response', ''), progress_callback)
                 
+                # Extract crime-relevant sections with timestamps
+                crime_sections = self.extract_crime_relevant_sections(
+                    ai_result.get('response', ''), segment, progress_callback
+                )
+                
                 return {
                     'success': True,
                     'segment': segment,
@@ -402,6 +488,8 @@ Does this recording contain anything relevant to the case facts? Quote any relev
                     'response_length': response_length,
                     'response_words': response_words,
                     'relevance_score': relevance_score,
+                    'crime_relevant_sections': crime_sections,
+                    'has_crime_content': len(crime_sections) > 0,
                     'ai_metrics': {
                         'eval_count': ai_result.get('eval_count'),
                         'eval_duration': ai_result.get('eval_duration'),
@@ -495,6 +583,203 @@ Does this recording contain anything relevant to the case facts? Quote any relev
                 'relevance_score': 0,
                 'error': str(e)
             }
+
+    def extract_crime_relevant_sections(self, ai_response: str, segment: TranscriptSegment, 
+                                      progress_callback: Optional[Callable] = None) -> List[CrimeRelevantSection]:
+        """
+        Extract crime-relevant sections from AI response with timestamp estimation.
+        
+        Args:
+            ai_response: AI model response containing relevant sections
+            segment: Original transcript segment
+            progress_callback: Optional callback for logging progress
+            
+        Returns:
+            List of CrimeRelevantSection objects with timestamps
+        """
+        relevant_sections = []
+        
+        try:
+            self._log_debug(f"Extracting crime-relevant sections from {segment.filename}", progress_callback)
+            
+            # Check if response indicates no relevant content
+            if "NO RELEVANT CONTENT FOUND" in ai_response.upper():
+                self._log_debug("AI response indicates no relevant content found", progress_callback)
+                return relevant_sections
+            
+            # Look for structured relevant sections
+            lines = ai_response.split('\n')
+            current_section = {}
+            in_relevant_sections = False
+            
+            for line in lines:
+                line = line.strip()
+                
+                if "RELEVANT SECTIONS:" in line.upper():
+                    in_relevant_sections = True
+                    continue
+                
+                if not in_relevant_sections:
+                    continue
+                
+                # Parse structured format
+                if line.startswith(('1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.')):
+                    # Save previous section if exists
+                    if current_section.get('text'):
+                        relevant_sections.append(self._create_crime_section(current_section, segment))
+                    
+                    # Start new section
+                    current_section = {}
+                    if 'Text:' in line:
+                        text_part = line.split('Text:', 1)[1].strip()
+                        current_section['text'] = text_part.strip('"[]')
+                
+                elif line.startswith('Text:'):
+                    current_section['text'] = line.split('Text:', 1)[1].strip().strip('"[]')
+                
+                elif line.startswith('Relevance:'):
+                    current_section['relevance'] = line.split('Relevance:', 1)[1].strip()
+                
+                elif line.startswith('Estimated Time:'):
+                    time_str = line.split('Estimated Time:', 1)[1].strip()
+                    current_section['estimated_time'] = self._parse_timestamp(time_str)
+            
+            # Add last section if exists
+            if current_section.get('text'):
+                relevant_sections.append(self._create_crime_section(current_section, segment))
+            
+            # Fallback: look for quoted text if structured format not found
+            if not relevant_sections and '"' in ai_response:
+                self._log_debug("Structured format not found, trying fallback extraction", progress_callback)
+                relevant_sections = self._extract_quoted_sections(ai_response, segment)
+            
+            self._log_info(f"Extracted {len(relevant_sections)} crime-relevant sections from {segment.filename}", progress_callback)
+            
+            for i, section in enumerate(relevant_sections):
+                self._log_debug(f"  Section {i+1}: {section.get_timestamp_range()} - {section.text[:50]}...", progress_callback)
+            
+            return relevant_sections
+            
+        except Exception as e:
+            error_msg = f"Error extracting crime-relevant sections: {str(e)}"
+            self._log_error(error_msg, progress_callback)
+            return relevant_sections
+
+    def _create_crime_section(self, section_data: Dict[str, Any], segment: TranscriptSegment) -> CrimeRelevantSection:
+        """Create a CrimeRelevantSection from parsed data."""
+        text = section_data.get('text', '')
+        relevance = section_data.get('relevance', 'Crime-relevant content identified')
+        estimated_time = section_data.get('estimated_time', 0.0)
+        
+        # Estimate end time (assume 30 seconds or based on text length)
+        text_words = len(text.split())
+        estimated_duration = max(5.0, min(60.0, text_words * 0.5))  # 0.5 seconds per word, 5-60 sec range
+        end_time = estimated_time + estimated_duration
+        
+        return CrimeRelevantSection(
+            filename=segment.filename,
+            text=text,
+            start_time=estimated_time,
+            end_time=end_time,
+            relevance_explanation=relevance
+        )
+
+    def _extract_quoted_sections(self, ai_response: str, segment: TranscriptSegment) -> List[CrimeRelevantSection]:
+        """Fallback method to extract quoted text as relevant sections."""
+        sections = []
+        
+        # Find all quoted text
+        import re
+        quoted_pattern = r'"([^"]+)"'
+        quotes = re.findall(quoted_pattern, ai_response)
+        
+        for i, quote in enumerate(quotes):
+            if len(quote.strip()) > 10:  # Only consider substantial quotes
+                # Estimate timestamp based on position in transcript
+                estimated_time = self._estimate_timestamp_from_text(quote, segment.content)
+                
+                sections.append(CrimeRelevantSection(
+                    filename=segment.filename,
+                    text=quote,
+                    start_time=estimated_time,
+                    end_time=estimated_time + 30.0,  # Default 30 second duration
+                    relevance_explanation="Quoted content identified as relevant"
+                ))
+        
+        return sections
+
+    def _parse_timestamp(self, time_str: str) -> float:
+        """Parse timestamp string to seconds."""
+        try:
+            time_str = time_str.lower().strip()
+            
+            # Remove common words
+            for word in ['approximately', 'around', 'about', 'at', 'time']:
+                time_str = time_str.replace(word, '').strip()
+            
+            # Look for time patterns
+            import re
+            
+            # Pattern: MM:SS or HH:MM:SS
+            time_pattern = r'(\d{1,2}):(\d{2})(?::(\d{2}))?'
+            match = re.search(time_pattern, time_str)
+            if match:
+                minutes = int(match.group(1))
+                seconds = int(match.group(2))
+                hours = int(match.group(3)) if match.group(3) else 0
+                
+                if hours > 0:  # HH:MM:SS format
+                    return hours * 3600 + minutes * 60 + seconds
+                else:  # MM:SS format
+                    return minutes * 60 + seconds
+            
+            # Pattern: "X minutes Y seconds"
+            minute_pattern = r'(\d+)\s*(?:minute|min)'
+            second_pattern = r'(\d+)\s*(?:second|sec)'
+            
+            minutes = 0
+            seconds = 0
+            
+            min_match = re.search(minute_pattern, time_str)
+            if min_match:
+                minutes = int(min_match.group(1))
+            
+            sec_match = re.search(second_pattern, time_str)
+            if sec_match:
+                seconds = int(sec_match.group(1))
+            
+            if minutes > 0 or seconds > 0:
+                return minutes * 60 + seconds
+            
+            # Pattern: just numbers (assume seconds)
+            number_pattern = r'(\d+)'
+            match = re.search(number_pattern, time_str)
+            if match:
+                return float(match.group(1))
+            
+            return 0.0
+            
+        except Exception:
+            return 0.0
+
+    def _estimate_timestamp_from_text(self, target_text: str, full_content: str) -> float:
+        """Estimate timestamp based on text position in content."""
+        try:
+            # Find approximate position of text in content
+            position = full_content.lower().find(target_text.lower())
+            if position == -1:
+                return 0.0
+            
+            # Estimate time based on character position
+            # Assume average speaking rate of 150 words per minute
+            chars_before = position
+            words_before = len(full_content[:position].split())
+            estimated_time = (words_before / 150.0) * 60.0  # Convert to seconds
+            
+            return max(0.0, estimated_time)
+            
+        except Exception:
+            return 0.0
 
     def analyze_all_segments(self, segments: List[TranscriptSegment], case_facts: str,
                            model_name: str = "mistral",
@@ -605,9 +890,10 @@ Does this recording contain anything relevant to the case facts? Quote any relev
 
     def save_results_to_files(self, results: List[Dict[str, Any]], output_directory: str,
                            case_facts: str, save_individual: bool = True,
-                           save_combined: bool = True, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+                           save_combined: bool = True, save_crime_report: bool = True,
+                           audio_directory: Optional[str] = None, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """
-        Save analysis results to files with comprehensive logging.
+        Save analysis results to files with comprehensive logging and crime-focused reports.
         
         Args:
             results: List of analysis results
@@ -615,6 +901,8 @@ Does this recording contain anything relevant to the case facts? Quote any relev
             case_facts: Original case facts for reference
             save_individual: Whether to save individual .ai.txt files
             save_combined: Whether to save combined summary file
+            save_crime_report: Whether to save crime-focused report with audio links
+            audio_directory: Directory containing original audio files for linking
             progress_callback: Optional callback for logging progress
             
         Returns:
@@ -625,6 +913,8 @@ Does this recording contain anything relevant to the case facts? Quote any relev
         self._log_info(f"Saving analysis results to: {output_directory}", progress_callback)
         self._log_debug(f"Save individual files: {save_individual}", progress_callback)
         self._log_debug(f"Save combined file: {save_combined}", progress_callback)
+        self._log_debug(f"Save crime report: {save_crime_report}", progress_callback)
+        self._log_debug(f"Audio directory: {audio_directory}", progress_callback)
         self._log_debug(f"Results to save: {len(results)}", progress_callback)
         
         try:
@@ -765,6 +1055,43 @@ ANALYSIS RESULTS:
                 except Exception as e:
                     failed_saves += 1
                     self._log_error(f"Error saving combined summary: {str(e)}", progress_callback)
+
+            # Save crime-focused report with audio links
+            if save_crime_report:
+                self._log_info("Saving crime-focused investigation report...", progress_callback)
+                
+                try:
+                    crime_report_filename = f"crime_investigation_report_{timestamp}.html"
+                    crime_report_path = output_path / crime_report_filename
+
+                    # Collect all crime-relevant sections
+                    all_crime_sections = []
+                    for result in results:
+                        if result['success'] and result.get('crime_relevant_sections'):
+                            sections = result['crime_relevant_sections']
+                            # Set audio file paths for linking
+                            for section in sections:
+                                if audio_directory:
+                                    audio_file_path = Path(audio_directory) / section.filename
+                                    if audio_file_path.exists():
+                                        section.audio_file_path = str(audio_file_path)
+                            all_crime_sections.extend(sections)
+
+                    crime_report_content = self._generate_crime_html_report(
+                        all_crime_sections, case_facts, timestamp, results
+                    )
+
+                    with open(crime_report_path, 'w', encoding='utf-8') as f:
+                        f.write(crime_report_content)
+                    saved_files.append(str(crime_report_path))
+                    successful_saves += 1
+                    
+                    self._log_info(f"Saved crime investigation report: {crime_report_filename}", progress_callback)
+                    self._log_info(f"Found {len(all_crime_sections)} crime-relevant sections across all recordings", progress_callback)
+                    
+                except Exception as e:
+                    failed_saves += 1
+                    self._log_error(f"Error saving crime investigation report: {str(e)}", progress_callback)
 
             save_time = (datetime.now() - save_start_time).total_seconds()
             

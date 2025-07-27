@@ -25,11 +25,31 @@ from pathlib import Path
 current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
+# Optional imports for backend detection
+try:
+    import faster_whisper
+    FASTER_WHISPER_AVAILABLE = True
+except ImportError:
+    FASTER_WHISPER_AVAILABLE = False
+
+try:
+    import onnxruntime as ort
+    ONNXRUNTIME_AVAILABLE = True
+except ImportError:
+    ONNXRUNTIME_AVAILABLE = False
+
 def detect_and_log_gpu():
     """Detect available computing devices and transcription backends."""
     print("=" * 60)
     print("🔍 SYSTEM HARDWARE & BACKEND DETECTION")
     print("=" * 60)
+    
+    # Check PyTorch installation details
+    print(f"🐍 PyTorch Version: {torch.__version__}")
+    if hasattr(torch.version, 'cuda') and torch.version.cuda:
+        print(f"⚡ PyTorch CUDA Version: {torch.version.cuda}")
+    else:
+        print("⚠️  PyTorch CUDA Version: Not available (CPU-only installation)")
     
     # Check CUDA availability
     cuda_available = torch.cuda.is_available()
@@ -43,6 +63,13 @@ def detect_and_log_gpu():
             gpu_name = torch.cuda.get_device_name(i)
             gpu_memory = torch.cuda.get_device_properties(i).total_memory / (1024**3)
             print(f"   └── GPU {i}: {gpu_name} ({gpu_memory:.1f} GB)")
+            
+            # RTX 5080 specific information
+            if "RTX 5080" in gpu_name or "RTX 50" in gpu_name:
+                print(f"   ⚡ RTX 5080 detected! This GPU requires:")
+                print(f"      • CUDA 12.4+ and newer drivers")
+                print(f"      • onnxruntime-gpu 1.19.0+")
+                print(f"      • PyTorch with CUDA 12.4 support")
         
         # Test GPU accessibility
         try:
@@ -51,9 +78,14 @@ def detect_and_log_gpu():
             print(f"✅ GPU {current_device} is ready for processing")
         except Exception as e:
             print(f"⚠️  GPU detected but not accessible: {e}")
+            print(f"   💡 Try running: python install_gpu_support.py")
             cuda_available = False
     else:
         print("💾 No CUDA GPU detected")
+        print("💡 For RTX 5080 support, ensure you have:")
+        print("   • Latest NVIDIA drivers")
+        print("   • PyTorch with CUDA 12.4+ support")
+        print("   • Run: python install_gpu_support.py")
     
     # Check for Apple Silicon (MPS)
     mps_available = hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
@@ -77,13 +109,11 @@ def detect_and_log_gpu():
         print("❌ OpenAI Whisper: Not Available")
     
     # Check faster-whisper
-    try:
-        import faster_whisper
+    if FASTER_WHISPER_AVAILABLE:
         print("✅ Faster-Whisper: Available")
         
         # Check ONNX Runtime for GPU support
-        try:
-            import onnxruntime as ort
+        if ONNXRUNTIME_AVAILABLE:
             providers = ort.get_available_providers()
             gpu_providers = [p for p in providers if 'CUDA' in p or 'Tensorrt' in p or 'Dml' in p]
             
@@ -93,9 +123,9 @@ def detect_and_log_gpu():
                     print("🎯 Recommended: Faster-Whisper with GPU acceleration")
             else:
                 print("⚠️  ONNX GPU Acceleration: Not Available (CPU only)")
-        except ImportError:
+        else:
             print("❌ ONNX Runtime: Not Available")
-    except ImportError:
+    else:
         print("❌ Faster-Whisper: Not Available")
     
     # Provide recommendations

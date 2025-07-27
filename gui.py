@@ -2021,21 +2021,29 @@ Transcription Summary:
             if output_directory == "No folder selected":
                 output_directory = "outputs"
             
+            # Get audio directory for linking in crime report
+            audio_directory = self.input_folder_label.text()
+            if audio_directory == "No folder selected":
+                audio_directory = None
+            
             case_facts = self.case_facts_text.toPlainText().strip()
             save_individual = self.save_individual_checkbox.isChecked()
             save_combined = self.save_combined_checkbox.isChecked()
             
             self.ai_log(f"Output directory: {output_directory}", "DEBUG")
+            self.ai_log(f"Audio directory: {audio_directory}", "DEBUG")
             self.ai_log(f"Save individual files: {save_individual}", "DEBUG")
             self.ai_log(f"Save combined summary: {save_combined}", "DEBUG")
             
-            # Save using the enhanced save method
+            # Save using the enhanced save method with crime report
             save_result = self.ai_review_manager.save_results_to_files(
                 results=results,
                 output_directory=output_directory,
                 case_facts=case_facts,
                 save_individual=save_individual,
                 save_combined=save_combined,
+                save_crime_report=True,
+                audio_directory=audio_directory,
                 progress_callback=log_callback
             )
             
