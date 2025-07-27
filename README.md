@@ -5,28 +5,53 @@ A modern desktop application built with PySide6 that allows you to transcribe au
 ## Features
 
 ### 🎯 Core Functionality
-- **Batch Transcription**: Process multiple audio files simultaneously
+- **Batch Transcription**: Process multiple audio files simultaneously with real-time progress tracking
 - **Multiple Formats**: Support for MP3, WAV, M4A, FLAC, AAC, OGG, WMA, MP4, AVI, MOV, MKV
-- **Model Selection**: Choose from 5 Whisper model sizes (tiny, base, small, medium, large)
-- **Smart Device Detection**: Automatically uses GPU if available, falls back to CPU
+- **Model Selection**: Choose from 5 Whisper model sizes (tiny, base, small, medium, large) with performance guidance
+- **Smart Device Detection**: Automatically detects and uses GPU (CUDA/Apple Silicon) if available, falls back to CPU
+- **Manual Device Selection**: Override automatic detection to choose specific processing device
 
 ### 🎨 User Interface
-- **Modern Design**: Clean, professional PySide6 interface
-- **Dark/Light Themes**: Toggle between themes for comfortable viewing
-- **Real-time Progress**: Live progress bars and detailed logging
-- **Responsive Layout**: Resizable panels and organized sections
+- **Modern Design**: Clean, professional PySide6 interface with organized panels
+- **Dark/Light Themes**: Toggle between themes with settings persistence
+- **Real-time Progress**: Live progress bars, file counters, and detailed logging with color coding
+- **Responsive Layout**: Resizable splitter panels and organized groupings
+- **Status Updates**: Comprehensive status bar and device information display
+- **Menu System**: Full menu bar with file operations, view options, and help
 
 ### 📊 Output & Reports
-- **HTML Reports**: Beautiful reports with hyperlinks to original audio files
-- **Individual Files**: Separate .txt files for each transcription
-- **Statistics**: Processing time, success/failure counts, file durations
-- **Audio Playback**: Direct links to play original files from HTML report
+- **Enhanced HTML Reports**: Beautiful reports with timestamped segments and interactive features
+- **Audio Playback Links**: Direct links to play original files from HTML report
+- **Segment Toggle**: Switch between full text view and timestamped segments
+- **Individual Files**: Separate .txt files for each transcription with metadata
+- **Statistics Dashboard**: Processing time, success/failure counts, performance metrics
+- **Language Detection**: Automatic language identification and reporting
 
 ### 🔧 Advanced Features
-- **Background Processing**: Non-blocking transcription with cancellation support
-- **Settings Persistence**: Remembers your folder selections and preferences
-- **Error Handling**: Robust error handling with detailed error messages
-- **Status Updates**: Real-time status bar and device information
+- **Background Processing**: Non-blocking transcription with thread-based processing
+- **Cancellation Support**: Stop transcription mid-process safely
+- **Settings Persistence**: Remembers folder selections, theme preferences, and device choices
+- **Comprehensive Error Handling**: Detailed error messages with troubleshooting suggestions
+- **Memory Monitoring**: GPU memory usage tracking and optimization tips
+- **Performance Metrics**: Real-time speed calculations and processing statistics
+- **File Analysis**: Pre-processing analysis of batch size, duration, and file types
+- **System Information**: Startup logging of hardware capabilities and system specs
+
+### 📈 Performance & Monitoring
+- **Real-time Metrics**: Processing speed in realtime factor (e.g., 4x realtime)
+- **Memory Usage**: GPU memory allocation tracking and warnings
+- **Progress Tracking**: Detailed progress updates for long transcriptions
+- **Batch Statistics**: Comprehensive reporting on batch processing results
+- **Device Optimization**: Automatic selection of best available processing device
+- **Performance Guidance**: Model selection recommendations based on hardware
+
+### 🛠️ Technical Features
+- **Threaded Architecture**: UI remains responsive during processing
+- **Robust File Handling**: Recursive directory scanning with format validation
+- **Safe Filename Generation**: Automatic handling of special characters in filenames
+- **HTML Report Generation**: Advanced report creation with embedded styling and JavaScript
+- **Settings Management**: QSettings-based configuration persistence
+- **Cross-platform Compatibility**: Windows, macOS, and Linux support
 
 ## Installation
 
@@ -140,13 +165,25 @@ Device information is displayed in the "Device Information" section of the inter
 ## HTML Report Features
 
 The generated HTML report includes:
-- **Statistics Dashboard**: Total files, success/failure counts, processing time
-- **File Listings**: Each transcription with metadata
-- **Audio Playback Links**: Click to play original files directly
-- **Responsive Design**: Works on desktop and mobile browsers
-- **Professional Styling**: Clean, modern appearance
+- **Statistics Dashboard**: Total files, success/failure counts, processing time with visual cards
+- **Timestamped Segments**: Interactive view showing transcription segments with precise timing
+- **Dual View Modes**: Toggle between full text and timestamped segments view
+- **Audio Playback Links**: Direct links to play original files with system player
+- **File Location Access**: JavaScript-powered file explorer integration
+- **Professional Styling**: Modern responsive design with hover effects and animations
+- **Interactive Elements**: Clickable buttons and smooth transitions
+- **Metadata Display**: File duration, language detection, and processing statistics
+- **Error Reporting**: Clear display of failed transcriptions with error details
 
 ## Troubleshooting
+
+### Built-in Diagnostics
+The application includes comprehensive diagnostic features:
+- **Automatic Error Detection**: Smart error categorization with specific solutions
+- **Memory Monitoring**: Real-time GPU memory usage tracking and warnings
+- **Device Validation**: Startup hardware detection and capability testing
+- **File Analysis**: Pre-processing validation of audio files and formats
+- **Progress Tracking**: Detailed logging of each processing step
 
 ### Common Issues
 
@@ -158,8 +195,10 @@ pip install openai-whisper
 **"FFmpeg not found"**
 - Install FFmpeg using instructions above
 - Ensure FFmpeg is in your system PATH
+- The app will detect and report FFmpeg availability
 
 **"CUDA out of memory"**
+- The app automatically monitors GPU memory and provides warnings
 - Try a smaller model (tiny, base, or small)
 - Close other GPU-intensive applications
 - The app will automatically fall back to CPU if needed
@@ -167,27 +206,40 @@ pip install openai-whisper
 **"Permission denied" errors**
 - Ensure you have write permissions to the output folder
 - Try running as administrator (Windows) or with sudo (Linux/Mac)
+- The app validates folder permissions before processing
+
+**Device Selection Issues**
+- Use the device dropdown to manually select CPU/GPU
+- Check the device information panel for hardware status
+- Review startup logs for hardware detection details
 
 ### Performance Tips
 
-1. **Use GPU**: Install CUDA for NVIDIA GPUs for significant speed improvements
-2. **Choose Right Model**: Balance speed vs accuracy based on your needs
-3. **Close Other Apps**: Free up system resources for better performance
-4. **SSD Storage**: Use SSD drives for faster file I/O
+1. **Monitor Device Usage**: Check the device information panel for optimal settings
+2. **Use GPU Acceleration**: The app automatically detects and recommends the best device
+3. **Model Selection Guidance**: Built-in descriptions help choose the right model
+4. **Memory Optimization**: Real-time memory monitoring prevents out-of-memory errors
+5. **Batch Analysis**: Pre-processing analysis helps estimate processing time
+6. **Background Processing**: UI remains responsive during long transcriptions
 
 ## Development
 
 ### Project Structure
-- `gui.py`: Complete PySide6 interface with threading support
-- `transcriber.py`: Core Whisper transcription engine
-- `utils.py`: Utility functions for file handling and HTML generation
-- `main.py`: Application entry point with error handling
+- `main.py`: Application entry point with hardware detection and error handling
+- `gui.py`: Complete PySide6 interface with threading, themes, and settings persistence
+- `transcriber.py`: Core Whisper transcription engine with device management and performance monitoring
+- `utils.py`: Utility functions for file handling, HTML report generation, and time formatting
+- `build_executable.py`: PyInstaller build script for standalone executable creation
+- `requirements.txt`: Python dependencies with version specifications
+- `transcriber_app.spec`: PyInstaller configuration for building
 
 ### Key Technologies
-- **PySide6**: Modern Qt-based GUI framework
-- **OpenAI Whisper**: State-of-the-art speech recognition
-- **PyTorch**: Deep learning backend with GPU support
-- **FFmpeg**: Audio/video processing pipeline
+- **PySide6**: Modern Qt-based GUI framework with dark/light theme support
+- **OpenAI Whisper**: State-of-the-art speech recognition with multiple model sizes
+- **PyTorch**: Deep learning backend with CUDA, MPS, and CPU support
+- **FFmpeg**: Audio/video processing pipeline for format support
+- **QSettings**: Cross-platform settings persistence
+- **Threading**: Background processing with cancellation support
 
 ## License
 

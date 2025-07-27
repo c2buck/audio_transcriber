@@ -15,6 +15,7 @@ from PySide6.QtCore import QThread, Signal, QTimer, Qt, QSettings
 from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor
 
 from transcriber import AudioTranscriber
+from backend_manager import BackendManager
 from utils import get_audio_files, create_html_report, format_time
 
 
@@ -77,13 +78,16 @@ class AudioTranscriberGUI(QMainWindow):
         self.transcriber = None
         self.worker_thread = None
         self.settings = QSettings("AudioTranscriber", "Settings")
+        self.backend_manager = BackendManager()
         
         # Initialize UI
         self.init_ui()
         self.load_settings()
         
-        # Initialize device selection
+        # Initialize backend and device selection
+        self.populate_backend_combo()
         self.populate_device_combo()
+        self.update_model_combo()
         self.update_device_info()
         self.update_status()
         
@@ -183,7 +187,7 @@ class AudioTranscriberGUI(QMainWindow):
         title_label.setAlignment(Qt.AlignCenter)
         header_layout.addWidget(title_label)
         
-        subtitle_label = QLabel("Powered by OpenAI Whisper")
+        subtitle_label = QLabel("Powered by OpenAI Whisper & Faster-Whisper")
         subtitle_label.setFont(QFont("Arial", 12))
         subtitle_label.setAlignment(Qt.AlignCenter)
         subtitle_label.setStyleSheet("color: gray;")
@@ -222,23 +226,63 @@ class AudioTranscriberGUI(QMainWindow):
         
         layout.addWidget(file_group)
         
+        # Backend Selection Group
+        backend_group = QGroupBox("Transcription Backend")
+        backend_layout = QVBoxLayout(backend_group)
+        
+        # Backend selection
+        backend_selection_layout = QHBoxLayout()
+        backend_selection_layout.addWidget(QLabel("Backend:"))
+        
+        self.backend_combo = QComboBox()
+        self.backend_combo.currentTextChanged.connect(self.on_backend_changed)
+        backend_selection_layout.addWidget(self.backend_combo)
+        
+        backend_layout.addLayout(backend_selection_layout)
+        
+        # Backend description
+        self.backend_description = QLabel("Auto-select best available backend")
+        self.backend_description.setWordWrap(True)
+        self.backend_description.setStyleSheet("color: gray; font-size: 11px;")
+        backend_layout.addWidget(self.backend_description)
+        
+        layout.addWidget(backend_group)
+        
         # Model Selection Group
-        model_group = QGroupBox("Whisper Model")
+        model_group = QGroupBox("Model Configuration")
         model_layout = QVBoxLayout(model_group)
         
+        # Model selection
         model_info_layout = QHBoxLayout()
         model_info_layout.addWidget(QLabel("Model:"))
         
         self.model_combo = QComboBox()
-        self.model_combo.addItems(["tiny", "base", "small", "medium", "large"])
-        self.model_combo.setCurrentText("base")
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
         model_info_layout.addWidget(self.model_combo)
         
         model_layout.addLayout(model_info_layout)
         
+        # Beam size setting (for faster-whisper)
+        self.beam_size_widget = QWidget()
+        beam_layout = QHBoxLayout(self.beam_size_widget)
+        beam_layout.setContentsMargins(0, 0, 0, 0)
+        beam_layout.addWidget(QLabel("Beam Size:"))
+        
+        self.beam_size_combo = QComboBox()
+        self.beam_size_combo.addItems(["1", "3", "5", "7", "10"])
+        self.beam_size_combo.setCurrentText("5")
+        self.beam_size_combo.currentTextChanged.connect(self.on_beam_size_changed)
+        beam_layout.addWidget(self.beam_size_combo)
+        
+        # Beam size help
+        beam_help = QLabel("(Higher = better accuracy, slower)")
+        beam_help.setStyleSheet("color: gray; font-size: 10px;")
+        beam_layout.addWidget(beam_help)
+        
+        model_layout.addWidget(self.beam_size_widget)
+        
         # Model description
-        self.model_description = QLabel(self.get_model_description("base"))
+        self.model_description = QLabel("")
         self.model_description.setWordWrap(True)
         self.model_description.setStyleSheet("color: gray; font-size: 11px;")
         model_layout.addWidget(self.model_description)
@@ -390,34 +434,159 @@ class AudioTranscriberGUI(QMainWindow):
         
         return progress_widget
     
-    def get_model_description(self, model_name: str) -> str:
-        """Get description for the selected model."""
-        descriptions = {
-            "tiny": "Fastest model, lower accuracy (~32x realtime)",
-            "base": "Good balance of speed and accuracy (~16x realtime)",
-            "small": "Better accuracy, moderate speed (~6x realtime)",
-            "medium": "High accuracy, slower processing (~2x realtime)",
-            "large": "Best accuracy, slowest processing (~1x realtime)"
-        }
+    def get_model_description(self, model_name: str, backend_name: str = "openai") -> str:
+        """Get description for the selected model and backend."""
+        if backend_name == "faster":
+            descriptions = {
+                "tiny": "Fastest model, lower accuracy (Faster-Whisper optimized)",
+                "base": "Good balance of speed and accuracy (Faster-Whisper optimized)",
+                "small": "Better accuracy, moderate speed (Faster-Whisper optimized)",
+                "medium": "High accuracy, slower processing (Faster-Whisper optimized)",
+                "large-v2": "Very high accuracy (Faster-Whisper large-v2)",
+                "large-v3": "Best accuracy available (Faster-Whisper large-v3)"
+            }
+        else:  # openai
+            descriptions = {
+                "tiny": "Fastest model, lower accuracy (~32x realtime)",
+                "base": "Good balance of speed and accuracy (~16x realtime)", 
+                "small": "Better accuracy, moderate speed (~6x realtime)",
+                "medium": "High accuracy, slower processing (~2x realtime)",
+                "large": "Best accuracy, slowest processing (~1x realtime)"
+            }
         return descriptions.get(model_name, "Unknown model")
+    
+    def get_backend_description(self, backend_name: str) -> str:
+        """Get description for the selected backend."""
+        backend_info = self.backend_manager.get_backend_info(backend_name)
+        if backend_info:
+            return backend_info.description
+        else:
+            return "Unknown backend"
+    
+    def populate_backend_combo(self):
+        """Populate the backend selection combo box."""
+        self.backend_combo.clear()
+        
+        # Add Auto option
+        self.backend_combo.addItem("Auto (Recommended)", "auto")
+        
+        # Add available backends
+        available_backends = self.backend_manager.get_available_backends()
+        for backend in available_backends:
+            self.backend_combo.addItem(backend.display_name, backend.name)
+        
+        # Set default to auto
+        self.backend_combo.setCurrentIndex(0)
+    
+    def update_model_combo(self):
+        """Update model combo based on selected backend."""
+        backend_name = self.backend_combo.currentData()
+        if not backend_name:
+            return
+        
+        self.model_combo.clear()
+        
+        if backend_name == "auto":
+            # For auto mode, use OpenAI models as default display
+            # The actual backend will be determined at runtime
+            backend_info = self.backend_manager.get_backend_info('openai')
+            models = backend_info.models if backend_info else ["tiny", "base", "small", "medium", "large"]
+        else:
+            backend_info = self.backend_manager.get_backend_info(backend_name)
+            models = backend_info.models if backend_info else []
+        
+        self.model_combo.addItems(models)
+        
+        # Set default to base if available
+        if "base" in models:
+            self.model_combo.setCurrentText("base")
+        elif models:
+            self.model_combo.setCurrentIndex(0)
+        
+        # Update beam size visibility
+        self.update_beam_size_visibility()
+        
+        # Update model description
+        self.update_model_description()
+    
+    def update_beam_size_visibility(self):
+        """Show/hide beam size setting based on backend."""
+        backend_name = self.backend_combo.currentData()
+        
+        # Show beam size only for faster-whisper backend
+        is_faster_backend = backend_name == "faster"
+        self.beam_size_widget.setVisible(is_faster_backend)
+    
+    def update_model_description(self):
+        """Update the model description based on current selections."""
+        model_name = self.model_combo.currentText()
+        backend_name = self.backend_combo.currentData()
+        
+        if model_name:
+            # Determine actual backend for description
+            if backend_name == "auto":
+                # For auto mode, try to predict which backend would be used
+                try:
+                    auto_backend = self.backend_manager.auto_select_backend()
+                    description = self.get_model_description(model_name, auto_backend)
+                    description += f" (Auto-selected: {auto_backend})"
+                except Exception:
+                    description = self.get_model_description(model_name, "openai")
+            else:
+                description = self.get_model_description(model_name, backend_name)
+            
+            self.model_description.setText(description)
+    
+    def on_backend_changed(self):
+        """Handle backend selection change."""
+        backend_name = self.backend_combo.currentData()
+        backend_display = self.backend_combo.currentText()
+        
+        # Update backend description
+        if backend_name == "auto":
+            self.backend_description.setText("Auto-select best available backend based on hardware")
+        else:
+            description = self.get_backend_description(backend_name)
+            self.backend_description.setText(description)
+        
+        # Update model combo and related UI
+        self.update_model_combo()
+        
+        # Reset transcriber to use new backend
+        self.transcriber = None
+        
+        self.log(f"Backend changed to: {backend_display}", "INFO")
+        
+        # Save backend preference
+        self.settings.setValue("preferred_backend", backend_name)
     
     def on_model_changed(self):
         """Handle model selection change."""
         model_name = self.model_combo.currentText()
-        self.model_description.setText(self.get_model_description(model_name))
-        self.transcriber = None  # Reset transcriber to reload model
-        self.log(f"Whisper model changed to: {model_name}", "INFO")
+        backend_name = self.backend_combo.currentData()
         
-        # Provide model-specific guidance
-        model_guidance = {
-            "tiny": "Fastest processing, suitable for quick testing",
-            "base": "Good balance of speed and quality for most use cases",
-            "small": "Better accuracy, moderate processing time",
-            "medium": "High accuracy, longer processing time",
-            "large": "Best accuracy, longest processing time"
-        }
-        if model_name in model_guidance:
-            self.log(f"💡 {model_guidance[model_name]}", "INFO")
+        # Update model description
+        self.update_model_description()
+        
+        # Reset transcriber to reload model
+        self.transcriber = None
+        
+        self.log(f"Model changed to: {model_name}", "INFO")
+        
+        # Save model preference
+        self.settings.setValue("preferred_model", model_name)
+    
+    def on_beam_size_changed(self):
+        """Handle beam size change."""
+        beam_size = self.beam_size_combo.currentText()
+        
+        # Reset transcriber to use new beam size
+        self.transcriber = None
+        
+        self.log(f"Beam size changed to: {beam_size}", "INFO")
+        
+        # Save beam size preference
+        self.settings.setValue("beam_size", beam_size)
     
     def on_device_changed(self):
         """Handle device selection change."""
@@ -586,7 +755,15 @@ class AudioTranscriberGUI(QMainWindow):
         if not self.transcriber:
             model_name = self.model_combo.currentText()
             selected_device = self.device_combo.currentData()
-            self.transcriber = AudioTranscriber(model_name, device=selected_device)
+            backend_name = self.backend_combo.currentData()
+            beam_size = int(self.beam_size_combo.currentText())
+            
+            self.transcriber = AudioTranscriber(
+                model_name=model_name,
+                device=selected_device,
+                backend=backend_name,
+                beam_size=beam_size
+            )
         
         # Reset progress
         self.overall_progress.setValue(0)
@@ -594,15 +771,21 @@ class AudioTranscriberGUI(QMainWindow):
         self.log("=== TRANSCRIPTION SESSION STARTED ===", "SYSTEM")
         self.log(f"Input folder: {input_folder}", "INFO")
         self.log(f"Output folder: {output_folder}", "INFO")
-        self.log(f"Whisper model: {self.model_combo.currentText()}", "INFO")
+        self.log(f"Backend: {self.backend_combo.currentText()}", "INFO")
+        self.log(f"Model: {self.model_combo.currentText()}", "INFO")
         self.log(f"Processing device: {self.device_combo.currentText()}", "INFO")
+        if self.backend_combo.currentData() == "faster":
+            self.log(f"Beam size: {self.beam_size_combo.currentText()}", "INFO")
         
         # Update UI state
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
         self.select_input_btn.setEnabled(False)
         self.select_output_btn.setEnabled(False)
+        self.backend_combo.setEnabled(False)
         self.model_combo.setEnabled(False)
+        self.beam_size_combo.setEnabled(False)
+        self.device_combo.setEnabled(False)
         
         # Start worker thread
         self.worker_thread = TranscriptionWorker(self.transcriber, input_folder, output_folder)
@@ -630,7 +813,10 @@ class AudioTranscriberGUI(QMainWindow):
         self.stop_btn.setEnabled(False)
         self.select_input_btn.setEnabled(True)
         self.select_output_btn.setEnabled(True)
+        self.backend_combo.setEnabled(True)
         self.model_combo.setEnabled(True)
+        self.beam_size_combo.setEnabled(True)
+        self.device_combo.setEnabled(True)
         
         if result['success']:
             self.overall_progress.setValue(100)
@@ -780,7 +966,38 @@ Transcription Summary:
         if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
             self.log("Apple Silicon GPU (MPS) Available", "SYSTEM")
         
-        self.log("=== END SYSTEM INFO ===", "SYSTEM")
+        # Backend detection information
+        self.log("=== BACKEND DETECTION ===", "SYSTEM")
+        detection_info = self.backend_manager.get_detection_info()
+        
+        for backend_name, backend_info in detection_info['backends_detected'].items():
+            status = "✓ Available" if backend_info['available'] else "✗ Not Available"
+            self.log(f"{backend_info['display_name']}: {status}", "SYSTEM")
+            if backend_info['available']:
+                models = ", ".join(backend_info['models'])
+                self.log(f"  └── Models: {models}", "SYSTEM")
+                self.log(f"  └── GPU Support: {'Yes' if backend_info['gpu_support'] else 'No'}", "SYSTEM")
+        
+        # ONNX Runtime information
+        if detection_info['onnx_providers']:
+            providers = ", ".join(detection_info['onnx_providers'])
+            self.log(f"ONNX Providers: {providers}", "SYSTEM")
+        else:
+            self.log("ONNX Runtime: Not available", "SYSTEM")
+        
+        # Recommended backend
+        recommended = detection_info['recommended_backend']
+        if recommended and not recommended.startswith("Error"):
+            self.log(f"Recommended Backend: {recommended}", "SYSTEM")
+        
+        # Compatibility warnings
+        warnings = detection_info.get('compatibility_warnings', [])
+        if warnings:
+            self.log("=== COMPATIBILITY WARNINGS ===", "WARNING")
+            for warning in warnings:
+                self.log(warning, "WARNING")
+        
+        self.log("=== END BACKEND INFO ===", "SYSTEM")
     
     def clear_logs(self):
         """Clear the log display."""
@@ -880,6 +1097,27 @@ Transcription Summary:
         
         if output_folder:
             self.output_folder_label.setText(output_folder)
+        
+        # Load backend preference
+        preferred_backend = self.settings.value("preferred_backend", "auto")
+        for i in range(self.backend_combo.count()):
+            if self.backend_combo.itemData(i) == preferred_backend:
+                self.backend_combo.setCurrentIndex(i)
+                break
+        
+        # Load model preference
+        preferred_model = self.settings.value("preferred_model", "base")
+        for i in range(self.model_combo.count()):
+            if self.model_combo.itemText(i) == preferred_model:
+                self.model_combo.setCurrentIndex(i)
+                break
+        
+        # Load beam size preference
+        preferred_beam_size = self.settings.value("beam_size", "5")
+        for i in range(self.beam_size_combo.count()):
+            if self.beam_size_combo.itemText(i) == preferred_beam_size:
+                self.beam_size_combo.setCurrentIndex(i)
+                break
         
         # Device preference will be loaded in populate_device_combo()
     

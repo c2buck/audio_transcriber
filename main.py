@@ -26,9 +26,9 @@ current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
 def detect_and_log_gpu():
-    """Detect available computing devices and log information for user."""
+    """Detect available computing devices and transcription backends."""
     print("=" * 60)
-    print("🔍 SYSTEM HARDWARE DETECTION")
+    print("🔍 SYSTEM HARDWARE & BACKEND DETECTION")
     print("=" * 60)
     
     # Check CUDA availability
@@ -49,10 +49,9 @@ def detect_and_log_gpu():
             test_tensor = torch.tensor([1.0]).cuda()
             current_device = torch.cuda.current_device()
             print(f"✅ GPU {current_device} is ready for processing")
-            print("🚀 Whisper will use GPU acceleration for faster transcription!")
         except Exception as e:
             print(f"⚠️  GPU detected but not accessible: {e}")
-            print("🐌 Falling back to CPU processing")
+            cuda_available = False
     else:
         print("💾 No CUDA GPU detected")
     
@@ -60,7 +59,6 @@ def detect_and_log_gpu():
     mps_available = hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()
     if mps_available:
         print("🍎 Apple Silicon GPU (MPS) Available: True")
-        print("🚀 Whisper will use Apple Silicon acceleration!")
     elif not cuda_available:
         print("🍎 Apple Silicon GPU (MPS): Not available")
     
@@ -68,9 +66,50 @@ def detect_and_log_gpu():
     cpu_count = os.cpu_count()
     print(f"🔧 CPU Cores: {cpu_count}")
     
-    if not cuda_available and not mps_available:
-        print("🐌 Using CPU for processing (slower but still functional)")
-        print("💡 Consider using a smaller model (tiny/base) for faster CPU processing")
+    # Check transcription backends
+    print("\n📦 TRANSCRIPTION BACKENDS:")
+    
+    # Check OpenAI Whisper
+    try:
+        import whisper
+        print("✅ OpenAI Whisper: Available")
+    except ImportError:
+        print("❌ OpenAI Whisper: Not Available")
+    
+    # Check faster-whisper
+    try:
+        import faster_whisper
+        print("✅ Faster-Whisper: Available")
+        
+        # Check ONNX Runtime for GPU support
+        try:
+            import onnxruntime as ort
+            providers = ort.get_available_providers()
+            gpu_providers = [p for p in providers if 'CUDA' in p or 'Tensorrt' in p or 'Dml' in p]
+            
+            if gpu_providers:
+                print(f"🚀 ONNX GPU Acceleration: Available ({', '.join(gpu_providers)})")
+                if cuda_available:
+                    print("🎯 Recommended: Faster-Whisper with GPU acceleration")
+            else:
+                print("⚠️  ONNX GPU Acceleration: Not Available (CPU only)")
+        except ImportError:
+            print("❌ ONNX Runtime: Not Available")
+    except ImportError:
+        print("❌ Faster-Whisper: Not Available")
+    
+    # Provide recommendations
+    print("\n💡 RECOMMENDATIONS:")
+    if cuda_available:
+        print("• Use Faster-Whisper with GPU acceleration for best performance")
+        print("• Install onnxruntime-gpu for optimal GPU support")
+    elif mps_available:
+        print("• Use OpenAI Whisper with MPS for Apple Silicon acceleration")
+        print("• Faster-Whisper may also work but with CPU fallback")
+    else:
+        print("• CPU processing will be used (slower but functional)")
+        print("• Consider using smaller models (tiny/base) for faster processing")
+        print("• For best performance, use a system with NVIDIA GPU")
     
     print("=" * 60)
     return cuda_available or mps_available
