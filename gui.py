@@ -91,33 +91,46 @@ class AIReviewWorker(QThread):
         """Run the AI review process with comprehensive logging."""
         def progress_callback(message):
             """Internal progress callback that forwards to the log_callback."""
-            if not self.is_cancelled:
-                # Parse log level from enhanced logging format
-                if "] DEBUG:" in message:
-                    level = "DEBUG"
-                    msg = message.split("] DEBUG:", 1)[1].strip()
-                elif "] ERROR:" in message:
-                    level = "ERROR" 
-                    msg = message.split("] ERROR:", 1)[1].strip()
-                elif "] INFO:" in message:
-                    level = "INFO"
-                    msg = message.split("] INFO:", 1)[1].strip()
-                elif "] WARNING:" in message:
-                    level = "WARNING"
-                    msg = message.split("] WARNING:", 1)[1].strip()
-                else:
-                    level = "INFO"
-                    msg = message
-                
-                # Emit both to the progress signal and direct logging
-                self.progress_update.emit(msg, level)
-                if self.log_callback:
-                    self.log_callback(msg, level)
+            try:
+                if not self.is_cancelled:
+                    # Parse log level from enhanced logging format
+                    if "] DEBUG:" in message:
+                        level = "DEBUG"
+                        msg = message.split("] DEBUG:", 1)[1].strip()
+                    elif "] ERROR:" in message:
+                        level = "ERROR" 
+                        msg = message.split("] ERROR:", 1)[1].strip()
+                    elif "] INFO:" in message:
+                        level = "INFO"
+                        msg = message.split("] INFO:", 1)[1].strip()
+                    elif "] WARNING:" in message:
+                        level = "WARNING"
+                        msg = message.split("] WARNING:", 1)[1].strip()
+                    else:
+                        level = "INFO"
+                        msg = message
+                    
+                    # Emit both to the progress signal and direct logging
+                    try:
+                        self.progress_update.emit(msg, level)
+                    except Exception as signal_error:
+                        print(f"[SIGNAL_ERROR] {signal_error}: {msg}", file=sys.stderr)
+                    
+                    if self.log_callback:
+                        try:
+                            self.log_callback(msg, level)
+                        except Exception as callback_error:
+                            print(f"[CALLBACK_ERROR] {callback_error}: {msg}", file=sys.stderr)
+            except Exception as e:
+                print(f"[PROGRESS_CALLBACK_ERROR] {e}: {message}", file=sys.stderr)
         
         def segment_complete_callback(result, current, total):
             """Internal segment completion callback."""
-            if not self.is_cancelled:
-                self.segment_complete.emit(result, current, total)
+            try:
+                if not self.is_cancelled:
+                    self.segment_complete.emit(result, current, total)
+            except Exception as e:
+                print(f"[SEGMENT_CALLBACK_ERROR] {e}: {current}/{total}", file=sys.stderr)
         
         try:
             # Validate inputs first
@@ -159,21 +172,37 @@ class AIReviewWorker(QThread):
             
             if not self.is_cancelled:
                 progress_callback("AI analysis workflow completed successfully")
-                self.finished.emit(results)
+                try:
+                    self.finished.emit(results)
+                except Exception as finish_error:
+                    print(f"[FINISH_EMIT_ERROR] {finish_error}", file=sys.stderr)
             else:
                 progress_callback("AI analysis was cancelled")
-                self.finished.emit([])
+                try:
+                    self.finished.emit([])
+                except Exception as cancel_emit_error:
+                    print(f"[CANCEL_EMIT_ERROR] {cancel_emit_error}", file=sys.stderr)
                 
         except Exception as e:
             if not self.is_cancelled:
                 error_msg = f"Error during AI review workflow: {str(e)}"
-                progress_callback(error_msg)
+                try:
+                    progress_callback(error_msg)
+                except Exception as progress_error:
+                    print(f"[PROGRESS_ERROR] {progress_error}: {error_msg}", file=sys.stderr)
                 
                 # Log additional error details
                 import traceback
-                progress_callback(f"Full traceback: {traceback.format_exc()}")
+                try:
+                    progress_callback(f"Full traceback: {traceback.format_exc()}")
+                except Exception as traceback_error:
+                    print(f"[TRACEBACK_ERROR] {traceback_error}", file=sys.stderr)
+                    print(f"Full traceback: {traceback.format_exc()}", file=sys.stderr)
                 
-                self.finished.emit([])
+                try:
+                    self.finished.emit([])
+                except Exception as error_emit_error:
+                    print(f"[ERROR_EMIT_ERROR] {error_emit_error}", file=sys.stderr)
     
     def cancel(self):
         """Cancel the AI review process with logging."""
@@ -1865,54 +1894,56 @@ Transcription Summary:
     
     def on_segment_complete(self, result, current, total):
         """Handle completion of a segment analysis with detailed logging."""
-        # Update progress
-        progress_pct = (current / total) * 100
-        self.ai_progress.setValue(int(progress_pct))
-        
-        segment = result['segment']
-        
-        if result['success']:
-            # Extract relevance information
-            relevance_info = result.get('relevance_score', {})
-            if isinstance(relevance_info, dict):
-                is_relevant = relevance_info.get('is_relevant', False)
-                relevance_score = relevance_info.get('relevance_score', 0)
+        try:
+            # Update progress
+            progress_pct = (current / total) * 100
+            if hasattr(self, 'ai_progress') and self.ai_progress:
+                self.ai_progress.setValue(int(progress_pct))
+            
+            segment = result.get('segment', {}) if isinstance(result, dict) else {}
+            
+            if result.get('success', False):
+                # Extract relevance information
+                relevance_info = result.get('relevance_score', {})
+                if isinstance(relevance_info, dict):
+                    is_relevant = relevance_info.get('is_relevant', False)
+                    relevance_score = relevance_info.get('relevance_score', 0)
+                else:
+                    is_relevant = False
+                    relevance_score = 0
+                
+                # Update progress label with relevance info
+                relevance_text = "RELEVANT" if is_relevant else "Not relevant"
+                filename = getattr(segment, 'filename', 'unknown') if hasattr(segment, 'filename') else 'unknown'
+                
+                if hasattr(self, 'ai_progress_label') and self.ai_progress_label:
+                    self.ai_progress_label.setText(f"Segment {current}/{total}: {filename} - {relevance_text}")
+                
+                # Log detailed completion info
+                processing_time = result.get('processing_time', 0)
+                response_length = result.get('response_length', 0)
+                response_words = result.get('response_words', 0)
+                
+                self.ai_log(f"✓ Completed {filename} ({processing_time:.1f}s)", "SUCCESS")
+                self.ai_log(f"  Relevance: {relevance_text} (Score: {relevance_score})", "DEBUG")
+                self.ai_log(f"  Response: {response_length} chars, {response_words} words", "DEBUG")
+                
+                # Log AI metrics if available
+                ai_metrics = result.get('ai_metrics', {})
+                if ai_metrics.get('eval_count'):
+                    self.ai_log(f"  AI tokens generated: {ai_metrics['eval_count']}", "DEBUG")
+                if ai_metrics.get('eval_duration'):
+                    eval_duration = ai_metrics['eval_duration'] / 1e9  # Convert nanoseconds to seconds
+                    self.ai_log(f"  AI generation time: {eval_duration:.1f}s", "DEBUG")
             else:
-                is_relevant = False
-                relevance_score = 0
-            
-            # Update progress label with relevance info
-            relevance_text = "RELEVANT" if is_relevant else "Not relevant"
-            self.ai_progress_label.setText(f"Segment {current}/{total}: {segment.filename} - {relevance_text}")
-            
-            # Log detailed completion info
-            processing_time = result.get('processing_time', 0)
-            response_length = result.get('response_length', 0)
-            response_words = result.get('response_words', 0)
-            
-            self.ai_log(f"✓ Completed {segment.filename} ({processing_time:.1f}s)", "SUCCESS")
-            self.ai_log(f"  Relevance: {relevance_text} (Score: {relevance_score})", "DEBUG")
-            self.ai_log(f"  Response: {response_length} chars, {response_words} words", "DEBUG")
-            
-            # Log AI metrics if available
-            ai_metrics = result.get('ai_metrics', {})
-            if ai_metrics.get('eval_count'):
-                self.ai_log(f"  AI tokens generated: {ai_metrics['eval_count']}", "DEBUG")
-            if ai_metrics.get('eval_duration'):
-                eval_duration = ai_metrics['eval_duration'] / 1e9  # Convert nanoseconds to seconds
-                self.ai_log(f"  AI evaluation time: {eval_duration:.2f}s", "DEBUG")
-        else:
-            error = result.get('error', 'Unknown error')
-            self.ai_progress_label.setText(f"Segment {current}/{total}: {segment.filename} - FAILED")
-            self.ai_log(f"✗ Failed {segment.filename}: {error}", "ERROR")
-            
-            # Log additional error details
-            if 'error_type' in result:
-                self.ai_log(f"  Error type: {result['error_type']}", "DEBUG")
-            if 'ai_error_details' in result:
-                ai_error = result['ai_error_details']
-                if isinstance(ai_error, dict) and 'error' in ai_error:
-                    self.ai_log(f"  AI error: {ai_error['error']}", "DEBUG")
+                error = result.get('error', 'Unknown error')
+                filename = getattr(segment, 'filename', 'unknown') if hasattr(segment, 'filename') else 'unknown'
+                if hasattr(self, 'ai_progress_label') and self.ai_progress_label:
+                    self.ai_progress_label.setText(f"Segment {current}/{total}: {filename} - FAILED")
+                self.ai_log(f"✗ Failed {filename}: {error}", "ERROR")
+        except Exception as e:
+            self.ai_log(f"Error in segment completion handler: {str(e)}", "ERROR")
+            print(f"[SEGMENT_COMPLETE_ERROR] {e}", file=sys.stderr)
         
         # Add result to display
         self.add_result_to_display(result, current)
@@ -2018,61 +2049,79 @@ Transcription Summary:
     
     def on_ai_analysis_finished(self, results):
         """Handle completion of all AI analysis with comprehensive logging and statistics."""
-        # Update UI state
-        self.analyze_btn.setEnabled(True)
-        self.stop_ai_btn.setEnabled(False)
-        self.test_connection_btn.setEnabled(True)
-        self.select_transcript_btn.setEnabled(True)
-        
-        # Update progress
-        self.ai_progress.setValue(100)
-        self.ai_progress_label.setText("Analysis complete")
-        
-        # Calculate and log comprehensive statistics
-        total_segments = len(results)
-        successful_analyses = sum(1 for r in results if r.get('success', False))
-        failed_analyses = total_segments - successful_analyses
-        
-        # Calculate relevance statistics
-        relevant_segments = 0
-        total_processing_time = 0
-        total_response_words = 0
-        
-        for result in results:
-            if result.get('success', False):
-                total_processing_time += result.get('processing_time', 0)
-                total_response_words += result.get('response_words', 0)
-                
-                relevance_info = result.get('relevance_score', {})
-                if isinstance(relevance_info, dict) and relevance_info.get('is_relevant', False):
-                    relevant_segments += 1
-        
-        avg_processing_time = total_processing_time / successful_analyses if successful_analyses > 0 else 0
-        avg_response_words = total_response_words / successful_analyses if successful_analyses > 0 else 0
-        
-        # Log comprehensive completion statistics
-        self.ai_log("=== AI ANALYSIS SESSION COMPLETED ===", "SYSTEM")
-        self.ai_log(f"✓ Analysis completed successfully", "SUCCESS")
-        self.ai_log(f"Total segments: {total_segments}", "INFO")
-        self.ai_log(f"Successful analyses: {successful_analyses}", "INFO")
-        self.ai_log(f"Failed analyses: {failed_analyses}", "INFO")
-        self.ai_log(f"Relevant segments found: {relevant_segments}", "INFO")
-        self.ai_log(f"Total processing time: {total_processing_time:.1f}s", "INFO")
-        self.ai_log(f"Average processing time: {avg_processing_time:.1f}s per segment", "DEBUG")
-        self.ai_log(f"Average response length: {avg_response_words:.0f} words", "DEBUG")
-        
-        if failed_analyses > 0:
-            self.ai_log(f"⚠️  Some segments failed to analyze", "WARNING")
-        
-        if relevant_segments == 0 and successful_analyses > 0:
-            self.ai_log("⚠️  No relevant content found in any segments", "WARNING")
-        elif relevant_segments > 0:
-            relevance_pct = (relevant_segments / successful_analyses) * 100
-            self.ai_log(f"Found relevant content in {relevance_pct:.1f}% of analyzed segments", "INFO")
-        
-        # Save results if options are enabled
-        if results and (self.save_individual_checkbox.isChecked() or self.save_combined_checkbox.isChecked()):
-            self.save_ai_results(results)
+        try:
+            # Update UI state
+            if hasattr(self, 'analyze_btn') and self.analyze_btn:
+                self.analyze_btn.setEnabled(True)
+            if hasattr(self, 'stop_ai_btn') and self.stop_ai_btn:
+                self.stop_ai_btn.setEnabled(False)
+            if hasattr(self, 'test_connection_btn') and self.test_connection_btn:
+                self.test_connection_btn.setEnabled(True)
+            if hasattr(self, 'select_transcript_btn') and self.select_transcript_btn:
+                self.select_transcript_btn.setEnabled(True)
+            
+            # Update progress
+            if hasattr(self, 'ai_progress') and self.ai_progress:
+                self.ai_progress.setValue(100)
+            if hasattr(self, 'ai_progress_label') and self.ai_progress_label:
+                self.ai_progress_label.setText("Analysis complete")
+            
+            # Calculate and log comprehensive statistics
+            total_segments = len(results)
+            successful_analyses = sum(1 for r in results if r.get('success', False))
+            failed_analyses = total_segments - successful_analyses
+            
+            # Calculate relevance statistics
+            relevant_segments = 0
+            total_processing_time = 0
+            total_response_words = 0
+            
+            for result in results:
+                if result.get('success', False):
+                    total_processing_time += result.get('processing_time', 0)
+                    total_response_words += result.get('response_words', 0)
+                    
+                    relevance_info = result.get('relevance_score', {})
+                    if isinstance(relevance_info, dict) and relevance_info.get('is_relevant', False):
+                        relevant_segments += 1
+            
+            avg_processing_time = total_processing_time / successful_analyses if successful_analyses > 0 else 0
+            avg_response_words = total_response_words / successful_analyses if successful_analyses > 0 else 0
+            
+            # Log comprehensive completion statistics
+            self.ai_log("=== AI ANALYSIS SESSION COMPLETED ===", "SYSTEM")
+            self.ai_log(f"✓ Analysis completed successfully", "SUCCESS")
+            self.ai_log(f"Total segments: {total_segments}", "INFO")
+            self.ai_log(f"Successful analyses: {successful_analyses}", "INFO")
+            self.ai_log(f"Failed analyses: {failed_analyses}", "INFO")
+            self.ai_log(f"Relevant segments found: {relevant_segments}", "INFO")
+            self.ai_log(f"Total processing time: {total_processing_time:.1f}s", "INFO")
+            self.ai_log(f"Average processing time: {avg_processing_time:.1f}s per segment", "DEBUG")
+            self.ai_log(f"Average response length: {avg_response_words:.0f} words", "DEBUG")
+            
+            if failed_analyses > 0:
+                self.ai_log(f"⚠️  Some segments failed to analyze", "WARNING")
+            
+            if relevant_segments == 0 and successful_analyses > 0:
+                self.ai_log("⚠️  No relevant content found in any segments", "WARNING")
+            elif relevant_segments > 0:
+                relevance_pct = (relevant_segments / successful_analyses) * 100
+                self.ai_log(f"Found relevant content in {relevance_pct:.1f}% of analyzed segments", "INFO")
+            
+                # Save results if options are enabled
+                if results and (self.save_individual_checkbox.isChecked() or self.save_combined_checkbox.isChecked()):
+                    self.save_ai_results(results)
+        except Exception as e:
+            self.ai_log(f"Error in analysis completion handler: {str(e)}", "ERROR")
+            print(f"[ANALYSIS_COMPLETE_ERROR] {e}", file=sys.stderr)
+            # Still try to re-enable buttons
+            try:
+                if hasattr(self, 'analyze_btn') and self.analyze_btn:
+                    self.analyze_btn.setEnabled(True)
+                if hasattr(self, 'stop_ai_btn') and self.stop_ai_btn:
+                    self.stop_ai_btn.setEnabled(False)
+            except:
+                pass
     
     def save_ai_results(self, results):
         """Save AI analysis results with comprehensive logging."""
@@ -2167,43 +2216,60 @@ Transcription Summary:
         self.ai_log_text.clear()
     
     def ai_log(self, message: str, level: str = "INFO"):
-        """Add a message to the AI log display."""
-        import datetime
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        """Add a message to the AI log display - thread-safe version."""
+        from PySide6.QtCore import QMetaObject, Qt
         
-        # Color coding based on log level
-        color_map = {
-            "INFO": "#ffffff",
-            "SUCCESS": "#28a745",
-            "WARNING": "#ffc107",
-            "ERROR": "#dc3545",
-            "DEBUG": "#6c757d",
-            "SYSTEM": "#17a2b8"
-        }
-        
-        # Icon mapping for different log levels
-        icon_map = {
-            "INFO": "ℹ️",
-            "SUCCESS": "✅",
-            "WARNING": "⚠️",
-            "ERROR": "❌",
-            "DEBUG": "🔍",
-            "SYSTEM": "🤖"
-        }
-        
-        color = color_map.get(level, "#ffffff")
-        icon = icon_map.get(level, "•")
-        
-        # Format message with HTML for colored output
-        formatted_message = f'<span style="color: {color};">[{timestamp}] {icon} {level}: {message}</span>'
-        
-        # Append as HTML to preserve colors
-        cursor = self.ai_log_text.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
-        cursor.insertHtml(formatted_message + "<br>")
-        
-        # Auto-scroll to bottom
-        self.ai_log_text.setTextCursor(cursor)
+        # If we're not on the main thread, use invokeMethod to safely update GUI
+        if threading.current_thread() != threading.main_thread():
+            QMetaObject.invokeMethod(self, "_ai_log_impl", Qt.QueuedConnection,
+                                   message, level)
+        else:
+            self._ai_log_impl(message, level)
+    
+    def _ai_log_impl(self, message: str, level: str = "INFO"):
+        """Internal implementation of ai_log that runs on the main thread."""
+        try:
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            
+            # Color coding based on log level
+            color_map = {
+                "INFO": "#ffffff",
+                "SUCCESS": "#28a745",
+                "WARNING": "#ffc107",
+                "ERROR": "#dc3545",
+                "DEBUG": "#6c757d",
+                "SYSTEM": "#17a2b8"
+            }
+            
+            # Icon mapping for different log levels
+            icon_map = {
+                "INFO": "ℹ️",
+                "SUCCESS": "✅",
+                "WARNING": "⚠️",
+                "ERROR": "❌",
+                "DEBUG": "🔍",
+                "SYSTEM": "🤖"
+            }
+            
+            color = color_map.get(level, "#ffffff")
+            icon = icon_map.get(level, "•")
+            
+            # Format message with HTML for colored output
+            formatted_message = f'<span style="color: {color};">[{timestamp}] {icon} {level}: {message}</span>'
+            
+            # Safely check if the widget still exists
+            if hasattr(self, 'ai_log_text') and self.ai_log_text:
+                # Append as HTML to preserve colors
+                cursor = self.ai_log_text.textCursor()
+                cursor.movePosition(QTextCursor.MoveOperation.End)
+                cursor.insertHtml(formatted_message + "<br>")
+                
+                # Auto-scroll to bottom
+                self.ai_log_text.setTextCursor(cursor)
+        except Exception as e:
+            # Fallback to print if GUI logging fails
+            print(f"[AI_LOG_ERROR] {e}: {message}", file=sys.stderr)
     
     def closeEvent(self, event):
         """Handle application close event."""
