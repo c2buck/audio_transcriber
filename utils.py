@@ -51,6 +51,140 @@ def get_audio_files(directory: str) -> List[str]:
     return sorted(audio_files)
 
 
+def create_chunked_json_transcript(transcription_results: List[Dict[str, Any]], output_dir: str, 
+                                  total_time: float, success_count: int, failure_count: int, 
+                                  model_info: Dict[str, Any], chunk_size_seconds: float = 60.0) -> str:
+    """
+    Create a chunked JSON transcript file optimized for AI model review.
+    
+    This function creates a JSON file with transcriptions chunked into time-based segments,
+    which is optimized for processing by local AI models like Ollama.
+    
+    Args:
+        transcription_results: List of transcription result dictionaries
+        output_dir: Directory to save the JSON file
+        total_time: Total processing time in seconds
+        success_count: Number of successful transcriptions
+        failure_count: Number of failed transcriptions
+        model_info: Dictionary with model and device information
+        chunk_size_seconds: Target size for each chunk in seconds (default: 60s)
+        
+    Returns:
+        Path to the created JSON file or None if failed
+    """
+    # Prepare summary information
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Extract model and device information
+    model_name = model_info.get('model_name', 'unknown')
+    backend_name = model_info.get('backend_display_name', 'unknown')
+    device_name = model_info.get('device_name', 'unknown')
+    
+    # Create a unified model description
+    model_description = f"{backend_name} {model_name}"
+    device_description = device_name
+    
+    # Build the JSON structure
+    json_data = {
+        "summary": {
+            "model_used": model_description,
+            "device": device_description,
+            "generated": current_time,
+            "recordings_transcribed": success_count,
+            "total_files": success_count + failure_count,
+            "failed_files": failure_count,
+            "total_processing_time_seconds": round(total_time, 2)
+        },
+        "recordings": []
+    }
+    
+    # Process each successful transcription
+    for result in transcription_results:
+        if not result.get('success', False):
+            continue  # Skip failed transcriptions
+        
+        # Extract filename without path
+        filename = Path(result['file_path']).name
+        
+        # Create recording entry
+        recording_data = {
+            "filename": filename,
+            "duration_seconds": round(result.get('duration', 0.0), 1),
+            "language": result.get('language', 'unknown'),
+            "processing_time_seconds": round(result.get('processing_time', 0.0), 1),
+            "words_count": result.get('words_count', 0),
+            "chunks": []
+        }
+        
+        # Process segments into chunks
+        raw_segments = result.get('segments', [])
+        
+        if raw_segments:
+            current_chunk = {
+                "chunk_id": 1,
+                "start": 0.0,
+                "end": 0.0,
+                "text": ""
+            }
+            
+            chunk_texts = []
+            
+            for segment in raw_segments:
+                segment_start = segment.get('start', 0.0)
+                segment_end = segment.get('end', 0.0)
+                segment_text = segment.get('text', '').strip()
+                
+                if not segment_text:
+                    continue
+                
+                # Check if this segment should start a new chunk
+                if current_chunk["text"] and (segment_start - current_chunk["start"] >= chunk_size_seconds):
+                    # Finalize current chunk
+                    current_chunk["end"] = segment_start  # End at the start of the next segment
+                    current_chunk["text"] = " ".join(chunk_texts)
+                    recording_data["chunks"].append(current_chunk.copy())
+                    
+                    # Start new chunk
+                    current_chunk["chunk_id"] += 1
+                    current_chunk["start"] = segment_start
+                    current_chunk["end"] = segment_end
+                    chunk_texts = [segment_text]
+                else:
+                    # Add to current chunk
+                    if not current_chunk["text"]:
+                        current_chunk["start"] = segment_start
+                    current_chunk["end"] = segment_end
+                    chunk_texts.append(segment_text)
+            
+            # Add the last chunk if it has content
+            if chunk_texts:
+                current_chunk["text"] = " ".join(chunk_texts)
+                recording_data["chunks"].append(current_chunk)
+        else:
+            # If no segments are available, create a single chunk with the full transcription
+            full_text = result.get('transcription', '').strip()
+            if full_text:
+                recording_data["chunks"].append({
+                    "chunk_id": 1,
+                    "start": 0.0,
+                    "end": result.get('duration', 0.0),
+                    "text": full_text
+                })
+        
+        # Add recording data to the JSON structure
+        json_data["recordings"].append(recording_data)
+    
+    # Save the JSON file
+    json_path = os.path.join(output_dir, "recordings_chunked.json")
+    try:
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        return json_path
+    except Exception as e:
+        print(f"Error creating chunked JSON transcript: {e}")
+        return None
+
+
 def create_json_transcript(transcription_results: List[Dict[str, Any]], output_dir: str, 
                           total_time: float, success_count: int, failure_count: int, 
                           model_info: Dict[str, Any]) -> str:

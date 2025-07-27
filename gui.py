@@ -1687,8 +1687,16 @@ Transcription Summary:
             self.ai_log(msg, level)
         
         try:
-            # Load the transcript
-            result = self.ai_review_manager.load_combined_transcript(file_path, log_callback)
+            # Check if this is a chunked JSON file
+            is_chunked_json = Path(file_path).name == "recordings_chunked.json"
+            
+            # Load the transcript based on file type
+            if is_chunked_json:
+                self.ai_log("Detected chunked JSON format optimized for AI review", "INFO")
+                result = self.ai_review_manager.load_chunked_json_transcript(file_path, log_callback)
+            else:
+                # Use standard transcript loader
+                result = self.ai_review_manager.load_combined_transcript(file_path, log_callback)
             
             if result['success']:
                 # Log detailed file information

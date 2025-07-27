@@ -634,7 +634,13 @@ class AIReviewManager:
         try:
             # Check if we have JSON metadata for enhanced processing
             is_json = json_metadata and json_metadata.get('is_json', False)
-            if is_json:
+            is_chunked_json = json_metadata and json_metadata.get('is_chunked', False)
+            
+            if is_chunked_json and json_metadata.get('original_json'):
+                self._log_info("Using chunked JSON-optimized segmentation", progress_callback)
+                self._log_debug(f"Chunked JSON structure: {json_metadata.get('json_structure', {})}", progress_callback)
+                return self._segment_chunked_json_transcript(json_metadata.get('original_json', {}), progress_callback)
+            elif is_json:
                 self._log_info("Using JSON-optimized segmentation", progress_callback)
                 self._log_debug(f"JSON structure: {json_metadata.get('json_structure', {})}", progress_callback)
                 return self._segment_json_transcript(transcript_content, json_metadata, progress_callback)
@@ -2650,3 +2656,301 @@ ANALYSIS RESULTS:
                     🎵 Play Audio at {section._format_timestamp(section.start_time)}
                 </a>'''
         return ""
+
+    def load_chunked_json_transcript(self, transcript_path: str, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+        """
+        Load the chunked JSON transcript file optimized for AI review.
+        
+        Args:
+            transcript_path: Path to the chunked JSON transcript file (recordings_chunked.json)
+            progress_callback: Optional callback for logging progress
+            
+        Returns:
+            Dict with success status, content, and detailed file information
+        """
+        self._log_info(f"=== STARTING CHUNKED JSON TRANSCRIPT LOADING ===", progress_callback)
+        self._log_info(f"Loading chunked JSON transcript from: {transcript_path}", progress_callback)
+        
+        try:
+            # Check if file exists
+            self._log_debug(f"Checking if file exists: {transcript_path}", progress_callback)
+            if not os.path.exists(transcript_path):
+                error_msg = f"Chunked JSON transcript file not found: {transcript_path}"
+                self._log_error(error_msg, progress_callback)
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'content': '',
+                    'file_path': transcript_path
+                }
+                
+            self._log_debug("File exists, getting file statistics...", progress_callback)
+
+            # Get file info
+            file_stat = os.stat(transcript_path)
+            file_size = file_stat.st_size
+            modified_time = datetime.fromtimestamp(file_stat.st_mtime)
+            
+            self._log_debug(f"File size: {file_size} bytes ({file_size / 1024:.1f} KB)", progress_callback)
+            self._log_debug(f"Last modified: {modified_time.strftime('%Y-%m-%d %H:%M:%S')}", progress_callback)
+
+            # Read file content
+            self._log_debug("Starting file read operation...", progress_callback)
+            start_time = datetime.now()
+            
+            try:
+                with open(transcript_path, 'r', encoding='utf-8') as f:
+                    raw_content = f.read()
+            except Exception as read_error:
+                self._log_exception("Error during file read", read_error, progress_callback)
+                raise
+                
+            read_time = (datetime.now() - start_time).total_seconds()
+            
+            self._log_debug(f"File read completed in {read_time:.3f}s", progress_callback)
+            self._log_debug(f"Raw content length: {len(raw_content)} characters", progress_callback)
+
+            if not raw_content.strip():
+                error_msg = "Chunked JSON transcript file is empty"
+                self._log_error(error_msg, progress_callback)
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'content': '',
+                    'file_size': file_size,
+                    'file_path': transcript_path
+                }
+
+            # Parse JSON content
+            try:
+                self._log_debug("Parsing chunked JSON content...", progress_callback)
+                json_data = json.loads(raw_content)
+                self._log_info("✓ Chunked JSON file parsed successfully", progress_callback)
+                self._log_debug(f"JSON data type: {type(json_data)}", progress_callback)
+                
+                # Validate structure
+                if not isinstance(json_data, dict):
+                    raise ValueError("Invalid JSON format: root should be an object")
+                
+                if "recordings" not in json_data or not isinstance(json_data["recordings"], list):
+                    raise ValueError("Invalid JSON format: missing 'recordings' array")
+                
+                # Extract summary information
+                summary = json_data.get("summary", {})
+                model_used = summary.get("model_used", "Unknown")
+                device = summary.get("device", "Unknown")
+                generated = summary.get("generated", "Unknown")
+                recordings_count = summary.get("recordings_transcribed", 0)
+                
+                self._log_info(f"Transcript summary: {recordings_count} recordings, model: {model_used}", progress_callback)
+                self._log_debug(f"Generated: {generated}, Device: {device}", progress_callback)
+                
+                # Count total chunks
+                total_chunks = 0
+                for recording in json_data["recordings"]:
+                    chunks = recording.get("chunks", [])
+                    total_chunks += len(chunks)
+                
+                self._log_info(f"Found {len(json_data['recordings'])} recordings with {total_chunks} total chunks", progress_callback)
+                
+                # Store original JSON data for enhanced processing
+                json_metadata = {
+                    'is_json': True,
+                    'is_chunked': True,
+                    'original_json': json_data,
+                    'json_structure': {
+                        'recordings_count': len(json_data['recordings']),
+                        'total_chunks': total_chunks,
+                        'model_used': model_used,
+                        'device': device,
+                        'generated': generated
+                    }
+                }
+                
+                # Convert to text format for compatibility with existing code
+                content = self._convert_chunked_json_to_text(json_data, progress_callback)
+                
+            except json.JSONDecodeError as e:
+                error_msg = f"Invalid JSON format: {str(e)}"
+                self._log_exception("JSON parsing failed", e, progress_callback)
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'content': '',
+                    'file_size': file_size,
+                    'file_path': transcript_path,
+                    'error_type': 'JSONDecodeError',
+                    'error_details': str(e)
+                }
+            except Exception as json_error:
+                self._log_exception("Unexpected error during JSON processing", json_error, progress_callback)
+                raise
+
+            # Analyze content
+            self._log_debug("Analyzing processed content...", progress_callback)
+            char_count = len(content)
+            word_count = len(content.split())
+            line_count = len(content.splitlines())
+            
+            self._log_info(f"✓ Chunked JSON transcript loaded successfully", progress_callback)
+            self._log_debug(f"Content stats: {char_count} chars, {word_count} words, {line_count} lines", progress_callback)
+            self._log_info(f"=== CHUNKED JSON TRANSCRIPT LOADING COMPLETED ===", progress_callback)
+
+            result = {
+                'success': True,
+                'content': content,
+                'file_size': file_size,
+                'file_path': transcript_path,
+                'character_count': char_count,
+                'word_count': word_count,
+                'line_count': line_count,
+                'modified_time': modified_time,
+                'read_time': read_time,
+                **json_metadata
+            }
+            
+            return result
+
+        except UnicodeDecodeError as e:
+            error_msg = f"Unicode decode error: {str(e)}"
+            self._log_exception("Unicode decode error during file reading", e, progress_callback)
+            return {
+                'success': False,
+                'error': error_msg,
+                'content': '',
+                'error_type': 'UnicodeDecodeError',
+                'error_details': str(e)
+            }
+        except PermissionError as e:
+            error_msg = f"Permission denied accessing file: {str(e)}"
+            self._log_exception("Permission error accessing file", e, progress_callback)
+            return {
+                'success': False,
+                'error': error_msg,
+                'content': '',
+                'error_type': 'PermissionError'
+            }
+        except Exception as e:
+            error_msg = f"Error reading chunked JSON transcript file: {str(e)}"
+            self._log_exception("Unexpected error during transcript loading", e, progress_callback)
+            return {
+                'success': False,
+                'error': error_msg,
+                'content': '',
+                'error_type': type(e).__name__,
+                'traceback': traceback.format_exc()
+            }
+
+    def _convert_chunked_json_to_text(self, json_data: Dict[str, Any], progress_callback: Optional[Callable] = None) -> str:
+        """
+        Convert chunked JSON transcript data to text format for processing.
+        
+        Args:
+            json_data: Parsed chunked JSON data
+            progress_callback: Optional callback for logging progress
+            
+        Returns:
+            Formatted text content
+        """
+        self._log_debug("Converting chunked JSON data to text format", progress_callback)
+        
+        try:
+            text_parts = []
+            
+            # Process each recording
+            for recording_idx, recording in enumerate(json_data.get("recordings", [])):
+                filename = recording.get("filename", f"recording_{recording_idx+1}.unknown")
+                duration = recording.get("duration_seconds", 0)
+                language = recording.get("language", "unknown")
+                
+                # Add recording header
+                text_parts.append(f"==== {filename} ====")
+                text_parts.append(f"Duration: {duration} seconds")
+                text_parts.append(f"Language: {language}")
+                text_parts.append("")
+                
+                # Process each chunk
+                chunks = recording.get("chunks", [])
+                for chunk in chunks:
+                    chunk_id = chunk.get("chunk_id", 0)
+                    start = chunk.get("start", 0)
+                    end = chunk.get("end", 0)
+                    text = chunk.get("text", "").strip()
+                    
+                    if text:
+                        # Format as timestamped chunk
+                        text_parts.append(f"[Chunk {chunk_id}: {start:.1f}s - {end:.1f}s]")
+                        text_parts.append(text)
+                        text_parts.append("")
+                
+                # Add separator between recordings
+                text_parts.append("-" * 50)
+                text_parts.append("")
+            
+            return "\n".join(text_parts)
+            
+        except Exception as e:
+            self._log_error(f"Error converting chunked JSON to text: {str(e)}", progress_callback)
+            # Fallback to JSON pretty print
+            try:
+                return json.dumps(json_data, indent=2, ensure_ascii=False) if json_data is not None else ""
+            except Exception:
+                return str(json_data) if json_data is not None else ""
+
+    def _segment_chunked_json_transcript(self, json_data: Dict[str, Any], progress_callback: Optional[Callable] = None) -> List[TranscriptSegment]:
+        """
+        Create transcript segments directly from chunked JSON data.
+        
+        Args:
+            json_data: Original chunked JSON data
+            progress_callback: Optional callback for logging progress
+            
+        Returns:
+            List of TranscriptSegment objects
+        """
+        segments = []
+        
+        try:
+            recordings = json_data.get("recordings", [])
+            self._log_info(f"Processing {len(recordings)} recordings from chunked JSON", progress_callback)
+            
+            segment_index = 0
+            for recording_idx, recording in enumerate(recordings):
+                filename = recording.get("filename", f"recording_{recording_idx+1}.unknown")
+                chunks = recording.get("chunks", [])
+                
+                self._log_debug(f"Processing recording: {filename} with {len(chunks)} chunks", progress_callback)
+                
+                for chunk in chunks:
+                    chunk_id = chunk.get("chunk_id", 0)
+                    start = chunk.get("start", 0)
+                    end = chunk.get("end", 0)
+                    text = chunk.get("text", "").strip()
+                    
+                    if not text:
+                        continue
+                    
+                    # Create detailed segments for timestamp info
+                    detailed_segments = [{
+                        "start": start,
+                        "end": end,
+                        "text": text
+                    }]
+                    
+                    # Create segment with chunk info in filename
+                    segment = TranscriptSegment(
+                        filename=f"{filename} (Chunk {chunk_id})",
+                        content=text,
+                        segment_index=segment_index,
+                        detailed_segments=detailed_segments
+                    )
+                    
+                    segments.append(segment)
+                    segment_index += 1
+            
+            self._log_info(f"Created {len(segments)} segments from chunked JSON data", progress_callback)
+            return segments
+            
+        except Exception as e:
+            self._log_error(f"Error creating segments from chunked JSON: {str(e)}", progress_callback)
+            return []
