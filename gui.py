@@ -9,7 +9,8 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QGridLayout, QLabel, QPushButton, QFileDialog, QComboBox,
     QTextEdit, QProgressBar, QGroupBox, QFrame, QSplitter,
-    QMessageBox, QStatusBar, QMenuBar, QMenu, QCheckBox
+    QMessageBox, QStatusBar, QMenuBar, QMenu, QCheckBox,
+    QTabWidget, QScrollArea
 )
 from PySide6.QtCore import QThread, Signal, QTimer, Qt, QSettings
 from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor
@@ -17,6 +18,7 @@ from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor
 from transcriber import AudioTranscriber
 from backend_manager import BackendManager
 from utils import get_audio_files, create_html_report, format_time
+from ai_review import AIReviewManager, TranscriptSegment
 
 
 class TranscriptionWorker(QThread):
@@ -69,6 +71,95 @@ class TranscriptionWorker(QThread):
         self.is_cancelled = True
 
 
+class AIReviewWorker(QThread):
+    """Worker thread for running AI review in the background with comprehensive logging."""
+    
+    progress_update = Signal(str, str)  # message, level
+    segment_complete = Signal(dict, int, int)  # result, current, total
+    finished = Signal(list)  # all results
+    
+    def __init__(self, ai_manager: AIReviewManager, segments, case_facts: str, model_name: str, log_callback=None):
+        super().__init__()
+        self.ai_manager = ai_manager
+        self.segments = segments
+        self.case_facts = case_facts
+        self.model_name = model_name
+        self.log_callback = log_callback
+        self.is_cancelled = False
+    
+    def run(self):
+        """Run the AI review process with comprehensive logging."""
+        def progress_callback(message):
+            """Internal progress callback that forwards to the log_callback."""
+            if not self.is_cancelled:
+                # Parse log level from enhanced logging format
+                if "] DEBUG:" in message:
+                    level = "DEBUG"
+                    msg = message.split("] DEBUG:", 1)[1].strip()
+                elif "] ERROR:" in message:
+                    level = "ERROR" 
+                    msg = message.split("] ERROR:", 1)[1].strip()
+                elif "] INFO:" in message:
+                    level = "INFO"
+                    msg = message.split("] INFO:", 1)[1].strip()
+                elif "] WARNING:" in message:
+                    level = "WARNING"
+                    msg = message.split("] WARNING:", 1)[1].strip()
+                else:
+                    level = "INFO"
+                    msg = message
+                
+                # Emit both to the progress signal and direct logging
+                self.progress_update.emit(msg, level)
+                if self.log_callback:
+                    self.log_callback(msg, level)
+        
+        def segment_complete_callback(result, current, total):
+            """Internal segment completion callback."""
+            if not self.is_cancelled:
+                self.segment_complete.emit(result, current, total)
+        
+        try:
+            # Reset cancellation flag in the AI manager
+            self.ai_manager.reset_cancellation(progress_callback)
+            
+            # Start the comprehensive analysis
+            progress_callback("Starting comprehensive AI analysis...")
+            
+            results = self.ai_manager.analyze_all_segments(
+                segments=self.segments,
+                case_facts=self.case_facts,
+                model_name=self.model_name,
+                progress_callback=progress_callback,
+                segment_complete_callback=segment_complete_callback
+            )
+            
+            if not self.is_cancelled:
+                progress_callback("AI analysis workflow completed successfully")
+                self.finished.emit(results)
+            else:
+                progress_callback("AI analysis was cancelled")
+                self.finished.emit([])
+                
+        except Exception as e:
+            if not self.is_cancelled:
+                error_msg = f"Error during AI review workflow: {str(e)}"
+                progress_callback(error_msg)
+                
+                # Log additional error details
+                import traceback
+                progress_callback(f"Full traceback: {traceback.format_exc()}")
+                
+                self.finished.emit([])
+    
+    def cancel(self):
+        """Cancel the AI review process with logging."""
+        self.is_cancelled = True
+        self.ai_manager.cancel_analysis()
+        if self.log_callback:
+            self.log_callback("AI review cancellation requested", "WARNING")
+
+
 class AudioTranscriberGUI(QMainWindow):
     """Main GUI application for the Audio Transcriber."""
     
@@ -77,8 +168,13 @@ class AudioTranscriberGUI(QMainWindow):
         
         self.transcriber = None
         self.worker_thread = None
+        self.ai_worker_thread = None
+        self.ai_review_manager = None
         self.settings = QSettings("AudioTranscriber", "Settings")
         self.backend_manager = BackendManager()
+        
+        # Initialize AI Review Manager
+        self.ai_review_manager = AIReviewManager()
         
         # Initialize UI
         self.init_ui()
@@ -123,20 +219,17 @@ class AudioTranscriberGUI(QMainWindow):
         # Create header
         self.create_header(main_layout)
         
-        # Create main content in splitter
-        splitter = QSplitter(Qt.Horizontal)
-        main_layout.addWidget(splitter)
+        # Create tabbed interface
+        self.tab_widget = QTabWidget()
+        main_layout.addWidget(self.tab_widget)
         
-        # Left panel - Configuration
-        config_widget = self.create_config_panel()
-        splitter.addWidget(config_widget)
+        # Transcription Tab
+        transcription_tab = self.create_transcription_tab()
+        self.tab_widget.addTab(transcription_tab, "🎙️ Transcription")
         
-        # Right panel - Progress and logs
-        progress_widget = self.create_progress_panel()
-        splitter.addWidget(progress_widget)
-        
-        # Set splitter proportions
-        splitter.setSizes([400, 500])
+        # AI Review Tab
+        ai_review_tab = self.create_ai_review_tab()
+        self.tab_widget.addTab(ai_review_tab, "🤖 AI Review")
         
         # Apply initial theme
         self.apply_theme()
@@ -175,6 +268,265 @@ class AudioTranscriberGUI(QMainWindow):
         about_action = QAction("About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+    
+    def create_transcription_tab(self):
+        """Create the transcription tab with existing functionality."""
+        tab_widget = QWidget()
+        tab_layout = QVBoxLayout(tab_widget)
+        
+        # Create splitter for config and progress panels
+        splitter = QSplitter(Qt.Horizontal)
+        tab_layout.addWidget(splitter)
+        
+        # Left panel - Configuration
+        config_widget = self.create_config_panel()
+        splitter.addWidget(config_widget)
+        
+        # Right panel - Progress and logs
+        progress_widget = self.create_progress_panel()
+        splitter.addWidget(progress_widget)
+        
+        # Set splitter proportions
+        splitter.setSizes([400, 500])
+        
+        return tab_widget
+    
+    def create_ai_review_tab(self):
+        """Create the AI Review tab."""
+        tab_widget = QWidget()
+        tab_layout = QVBoxLayout(tab_widget)
+        tab_layout.setSpacing(15)
+        tab_layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Create main splitter for layout
+        main_splitter = QSplitter(Qt.Horizontal)
+        tab_layout.addWidget(main_splitter)
+        
+        # Left Panel - Configuration and Controls
+        left_panel = self.create_ai_config_panel()
+        main_splitter.addWidget(left_panel)
+        
+        # Right Panel - Results and Logs
+        right_panel = self.create_ai_results_panel()
+        main_splitter.addWidget(right_panel)
+        
+        # Set splitter proportions
+        main_splitter.setSizes([400, 600])
+        
+        return tab_widget
+    
+    def create_ai_config_panel(self):
+        """Create the AI Review configuration panel."""
+        config_widget = QWidget()
+        layout = QVBoxLayout(config_widget)
+        
+        # Ollama Connection Group
+        connection_group = QGroupBox("Ollama Connection")
+        connection_layout = QVBoxLayout(connection_group)
+        
+        # Connection status
+        connection_status_layout = QHBoxLayout()
+        self.ai_connection_label = QLabel("Not connected")
+        self.ai_connection_label.setStyleSheet("color: red; font-weight: bold;")
+        connection_status_layout.addWidget(QLabel("Status:"))
+        connection_status_layout.addWidget(self.ai_connection_label)
+        connection_status_layout.addStretch()
+        
+        self.test_connection_btn = QPushButton("Test Connection")
+        self.test_connection_btn.clicked.connect(self.test_ollama_connection)
+        connection_status_layout.addWidget(self.test_connection_btn)
+        
+        connection_layout.addLayout(connection_status_layout)
+        
+        # Model selection
+        model_layout = QHBoxLayout()
+        model_layout.addWidget(QLabel("AI Model:"))
+        self.ai_model_combo = QComboBox()
+        self.ai_model_combo.addItem("mistral")  # Default model
+        model_layout.addWidget(self.ai_model_combo)
+        connection_layout.addLayout(model_layout)
+        
+        layout.addWidget(connection_group)
+        
+        # Transcript Source Group
+        transcript_group = QGroupBox("Transcript Source")
+        transcript_layout = QVBoxLayout(transcript_group)
+        
+        # Transcript file selection
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(QLabel("Transcript File:"))
+        self.ai_transcript_label = QLabel("No file selected")
+        self.ai_transcript_label.setStyleSheet("background: #f0f0f0; padding: 8px; border: 1px solid #ccc; color: black;")
+        file_layout.addWidget(self.ai_transcript_label, 1)
+        
+        self.select_transcript_btn = QPushButton("Browse...")
+        self.select_transcript_btn.clicked.connect(self.select_transcript_file)
+        file_layout.addWidget(self.select_transcript_btn)
+        
+        transcript_layout.addLayout(file_layout)
+        
+        # Segment info
+        self.segment_info_label = QLabel("No transcript loaded")
+        self.segment_info_label.setStyleSheet("color: gray; font-size: 11px;")
+        transcript_layout.addWidget(self.segment_info_label)
+        
+        layout.addWidget(transcript_group)
+        
+        # Case Facts Group
+        case_facts_group = QGroupBox("Case Facts")
+        case_facts_layout = QVBoxLayout(case_facts_group)
+        
+        self.case_facts_text = QTextEdit()
+        self.case_facts_text.setPlaceholderText("Enter the case facts that the AI should look for in the transcripts...")
+        self.case_facts_text.setMaximumHeight(150)
+        self.case_facts_text.textChanged.connect(self.update_analyze_button_state)
+        case_facts_layout.addWidget(self.case_facts_text)
+        
+        layout.addWidget(case_facts_group)
+        
+        # Save Options Group
+        save_group = QGroupBox("Save Options")
+        save_layout = QVBoxLayout(save_group)
+        
+        self.save_individual_checkbox = QCheckBox("Save individual .ai.txt files per recording")
+        self.save_individual_checkbox.setChecked(True)
+        save_layout.addWidget(self.save_individual_checkbox)
+        
+        self.save_combined_checkbox = QCheckBox("Save combined summary file")
+        self.save_combined_checkbox.setChecked(True)
+        save_layout.addWidget(self.save_combined_checkbox)
+        
+        layout.addWidget(save_group)
+        
+        # Control Buttons
+        control_layout = QHBoxLayout()
+        
+        self.analyze_btn = QPushButton("Analyze All Recordings")
+        self.analyze_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                padding: 12px;
+                border: none;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+            }
+        """)
+        self.analyze_btn.clicked.connect(self.start_ai_analysis)
+        self.analyze_btn.setEnabled(False)
+        control_layout.addWidget(self.analyze_btn)
+        
+        self.stop_ai_btn = QPushButton("Stop Analysis")
+        self.stop_ai_btn.setEnabled(False)
+        self.stop_ai_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                font-weight: bold;
+                padding: 12px;
+                border: none;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+            }
+        """)
+        self.stop_ai_btn.clicked.connect(self.stop_ai_analysis)
+        control_layout.addWidget(self.stop_ai_btn)
+        
+        layout.addLayout(control_layout)
+        
+        # Add stretch to push everything to top
+        layout.addStretch()
+        
+        return config_widget
+    
+    def create_ai_results_panel(self):
+        """Create the AI Review results panel."""
+        results_widget = QWidget()
+        layout = QVBoxLayout(results_widget)
+        
+        # Progress Group
+        progress_group = QGroupBox("Analysis Progress")
+        progress_layout = QVBoxLayout(progress_group)
+        
+        # Overall progress
+        progress_layout.addWidget(QLabel("Overall Progress:"))
+        self.ai_progress = QProgressBar()
+        self.ai_progress.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #ccc;
+                border-radius: 6px;
+                text-align: center;
+                font-weight: bold;
+            }
+            QProgressBar::chunk {
+                background-color: #007bff;
+                border-radius: 5px;
+            }
+        """)
+        progress_layout.addWidget(self.ai_progress)
+        
+        # Current segment info
+        self.ai_progress_label = QLabel("Ready to analyze...")
+        progress_layout.addWidget(self.ai_progress_label)
+        
+        layout.addWidget(progress_group)
+        
+        # Results Group
+        results_group = QGroupBox("Analysis Results")
+        results_layout = QVBoxLayout(results_group)
+        
+        # Results area with scroll
+        self.ai_results_area = QScrollArea()
+        self.ai_results_area.setWidgetResizable(True)
+        self.ai_results_area.setMinimumHeight(300)
+        
+        self.ai_results_widget = QWidget()
+        self.ai_results_layout = QVBoxLayout(self.ai_results_widget)
+        self.ai_results_layout.addStretch()
+        
+        self.ai_results_area.setWidget(self.ai_results_widget)
+        results_layout.addWidget(self.ai_results_area)
+        
+        layout.addWidget(results_group)
+        
+        # Logs Group
+        logs_group = QGroupBox("Analysis Logs")
+        logs_layout = QVBoxLayout(logs_group)
+        
+        self.ai_log_text = QTextEdit()
+        self.ai_log_text.setReadOnly(True)
+        self.ai_log_text.setFont(QFont("Consolas", 10))
+        self.ai_log_text.setMaximumHeight(200)
+        self.ai_log_text.setStyleSheet("""
+            QTextEdit {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                border: 1px solid #ccc;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """)
+        logs_layout.addWidget(self.ai_log_text)
+        
+        # Clear logs button
+        clear_ai_logs_btn = QPushButton("Clear Logs")
+        clear_ai_logs_btn.clicked.connect(self.clear_ai_logs)
+        logs_layout.addWidget(clear_ai_logs_btn)
+        
+        layout.addWidget(logs_group)
+        
+        return results_widget
     
     def create_header(self, layout):
         """Create the application header."""
@@ -1121,6 +1473,646 @@ Transcription Summary:
         
         # Device preference will be loaded in populate_device_combo()
     
+    # AI Review Methods
+    def test_ollama_connection(self):
+        """Test connection to Ollama instance with comprehensive logging."""
+        self.ai_log("=== TESTING OLLAMA CONNECTION ===", "SYSTEM")
+        
+        def log_callback(message):
+            """Callback to capture detailed connection logs."""
+            # Parse log level from message if present
+            if "] DEBUG:" in message:
+                level = "DEBUG"
+                msg = message.split("] DEBUG:", 1)[1].strip()
+            elif "] ERROR:" in message:
+                level = "ERROR" 
+                msg = message.split("] ERROR:", 1)[1].strip()
+            elif "] INFO:" in message:
+                level = "INFO"
+                msg = message.split("] INFO:", 1)[1].strip()
+            else:
+                level = "INFO"
+                msg = message
+            
+            self.ai_log(msg, level)
+        
+        try:
+            result = self.ai_review_manager.test_ollama_connection(log_callback)
+            
+            if result['success']:
+                self.ai_connection_label.setText("Connected ✓")
+                self.ai_connection_label.setStyleSheet("color: green; font-weight: bold;")
+                self.ai_log(f"✓ Successfully connected to Ollama", "SUCCESS")
+                
+                # Log detailed connection info
+                if 'response_time' in result:
+                    self.ai_log(f"Response time: {result['response_time']:.3f}s", "DEBUG")
+                if 'ollama_version' in result:
+                    self.ai_log(f"Ollama version: {result['ollama_version']}", "DEBUG")
+                
+                # Update model combo with available models
+                self.update_ai_model_combo(result.get('models', []))
+                
+                # Enable analyze button if we have transcript loaded
+                self.update_analyze_button_state()
+            else:
+                self.ai_connection_label.setText("Failed ✗")
+                self.ai_connection_label.setStyleSheet("color: red; font-weight: bold;")
+                self.ai_log(f"✗ Connection failed: {result['message']}", "ERROR")
+                
+                # Log additional error details
+                if 'error_type' in result:
+                    self.ai_log(f"Error type: {result['error_type']}", "DEBUG")
+                if 'error_details' in result:
+                    self.ai_log(f"Error details: {result['error_details']}", "DEBUG")
+                    
+                self.analyze_btn.setEnabled(False)
+                
+        except Exception as e:
+            self.ai_connection_label.setText("Error ✗")
+            self.ai_connection_label.setStyleSheet("color: red; font-weight: bold;")
+            self.ai_log(f"Connection test exception: {str(e)}", "ERROR")
+            import traceback
+            self.ai_log(f"Full traceback: {traceback.format_exc()}", "DEBUG")
+    
+    def update_ai_model_combo(self, available_models):
+        """Update AI model combo with available models and detailed logging."""
+        self.ai_log(f"Updating model list with {len(available_models)} models", "DEBUG")
+        self.ai_model_combo.clear()
+        
+        if available_models:
+            # Add available models
+            for i, model in enumerate(available_models):
+                if isinstance(model, dict):
+                    display_name = f"{model['name']} ({model.get('size', 'Unknown size')})"
+                    self.ai_model_combo.addItem(display_name, model['name'])
+                    self.ai_log(f"  Model {i+1}: {model['name']} ({model.get('size', 'Unknown size')})", "DEBUG")
+                else:
+                    self.ai_model_combo.addItem(str(model), str(model))
+                    self.ai_log(f"  Model {i+1}: {model}", "DEBUG")
+            
+            # Set mistral as default if available
+            mistral_found = False
+            for i in range(self.ai_model_combo.count()):
+                model_data = self.ai_model_combo.itemData(i)
+                if model_data and 'mistral' in model_data.lower():
+                    self.ai_model_combo.setCurrentIndex(i)
+                    mistral_found = True
+                    self.ai_log(f"Set default model to: {model_data}", "INFO")
+                    break
+            
+            if not mistral_found and self.ai_model_combo.count() > 0:
+                # Use first available model if mistral not found
+                first_model = self.ai_model_combo.itemData(0)
+                self.ai_log(f"Mistral not found, using first available: {first_model}", "INFO")
+        else:
+            # Add default models if none found
+            self.ai_model_combo.addItem("mistral (Download required)", "mistral")
+            self.ai_model_combo.addItem("llama2 (Download required)", "llama2")
+            self.ai_log("No models found, added default options", "WARNING")
+    
+    def select_transcript_file(self):
+        """Select transcript file for AI analysis with comprehensive logging."""
+        self.ai_log("Opening transcript file selection dialog", "DEBUG")
+        
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, 
+            "Select Transcript File", 
+            self.settings.value("ai_transcript_folder", ""),
+            "Text files (*.txt);;All files (*.*)"
+        )
+        
+        if file_path:
+            self.ai_log(f"Selected transcript file: {file_path}", "INFO")
+            self.ai_transcript_label.setText(file_path)
+            self.settings.setValue("ai_transcript_folder", str(Path(file_path).parent))
+            
+            # Load and segment the transcript
+            self.load_transcript_segments(file_path)
+            
+            # Update button state
+            self.update_analyze_button_state()
+        else:
+            self.ai_log("File selection cancelled", "DEBUG")
+    
+    def load_transcript_segments(self, file_path):
+        """Load and segment the transcript file with comprehensive logging."""
+        self.ai_log("=== LOADING TRANSCRIPT SEGMENTS ===", "SYSTEM")
+        
+        def log_callback(message):
+            """Callback to capture detailed loading logs."""
+            # Parse log level from message if present
+            if "] DEBUG:" in message:
+                level = "DEBUG"
+                msg = message.split("] DEBUG:", 1)[1].strip()
+            elif "] ERROR:" in message:
+                level = "ERROR" 
+                msg = message.split("] ERROR:", 1)[1].strip()
+            elif "] INFO:" in message:
+                level = "INFO"
+                msg = message.split("] INFO:", 1)[1].strip()
+            elif "] WARNING:" in message:
+                level = "WARNING"
+                msg = message.split("] WARNING:", 1)[1].strip()
+            else:
+                level = "INFO"
+                msg = message
+            
+            self.ai_log(msg, level)
+        
+        try:
+            # Load the transcript
+            result = self.ai_review_manager.load_combined_transcript(file_path, log_callback)
+            
+            if result['success']:
+                # Log detailed file information
+                self.ai_log(f"File size: {result.get('file_size', 0)} bytes", "DEBUG")
+                self.ai_log(f"Character count: {result.get('character_count', 0)}", "DEBUG")
+                self.ai_log(f"Word count: {result.get('word_count', 0)}", "DEBUG")
+                self.ai_log(f"Line count: {result.get('line_count', 0)}", "DEBUG")
+                if 'read_time' in result:
+                    self.ai_log(f"File read time: {result['read_time']:.3f}s", "DEBUG")
+                
+                # Segment the transcript
+                segments = self.ai_review_manager.segment_transcript(result['content'], log_callback)
+                self.current_segments = segments
+                
+                # Update UI with segment info
+                total_words = sum(segment.word_count for segment in segments)
+                self.segment_info_label.setText(
+                    f"Found {len(segments)} recording segments, {total_words:,} total words"
+                )
+                
+                self.ai_log(f"✓ Successfully loaded {len(segments)} segments with {total_words:,} words", "SUCCESS")
+                
+                # Log detailed segment information
+                for i, segment in enumerate(segments):
+                    if i < 10:  # Show first 10 segments
+                        self.ai_log(f"  Segment {i+1}: {segment.filename} ({segment.word_count} words)", "DEBUG")
+                    elif i == 10:
+                        self.ai_log(f"  ... and {len(segments) - 10} more segments", "DEBUG")
+                        break
+                        
+            else:
+                self.segment_info_label.setText("Failed to load transcript")
+                self.ai_log(f"✗ Failed to load transcript: {result['error']}", "ERROR")
+                
+                # Log additional error details
+                if 'error_type' in result:
+                    self.ai_log(f"Error type: {result['error_type']}", "DEBUG")
+                if 'traceback' in result:
+                    self.ai_log(f"Full traceback: {result['traceback']}", "DEBUG")
+                    
+                self.current_segments = []
+                
+        except Exception as e:
+            self.segment_info_label.setText("Error loading transcript")
+            self.ai_log(f"Exception loading transcript: {str(e)}", "ERROR")
+            import traceback
+            self.ai_log(f"Full traceback: {traceback.format_exc()}", "DEBUG")
+            self.current_segments = []
+    
+    def update_analyze_button_state(self):
+        """Update the analyze button enabled state with logging."""
+        # Enable if we have Ollama connection, transcript loaded, and case facts
+        has_connection = "Connected" in self.ai_connection_label.text()
+        has_transcript = hasattr(self, 'current_segments') and self.current_segments
+        has_case_facts = bool(self.case_facts_text.toPlainText().strip())
+        
+        button_enabled = has_connection and has_transcript and has_case_facts
+        self.analyze_btn.setEnabled(button_enabled)
+        
+        # Log button state reasoning
+        status_parts = []
+        if not has_connection:
+            status_parts.append("no Ollama connection")
+        if not has_transcript:
+            status_parts.append("no transcript loaded")
+        if not has_case_facts:
+            status_parts.append("no case facts entered")
+            
+        if status_parts:
+            self.ai_log(f"Analyze button disabled: {', '.join(status_parts)}", "DEBUG")
+        else:
+            self.ai_log("Analyze button enabled: all requirements met", "DEBUG")
+    
+    def start_ai_analysis(self):
+        """Start AI analysis of transcript segments with comprehensive logging."""
+        case_facts = self.case_facts_text.toPlainText().strip()
+        if not case_facts:
+            QMessageBox.warning(self, "Warning", "Please enter case facts to analyze.")
+            return
+        
+        if not hasattr(self, 'current_segments') or not self.current_segments:
+            QMessageBox.warning(self, "Warning", "Please select and load a transcript file.")
+            return
+        
+        # Get selected model
+        model_name = self.ai_model_combo.currentData() or "mistral"
+        
+        # Clear previous results
+        self.clear_ai_results()
+        
+        # Reset progress
+        self.ai_progress.setValue(0)
+        self.ai_progress_label.setText("Starting AI analysis...")
+        
+        # Update UI state
+        self.analyze_btn.setEnabled(False)
+        self.stop_ai_btn.setEnabled(True)
+        self.test_connection_btn.setEnabled(False)
+        self.select_transcript_btn.setEnabled(False)
+        
+        # Log comprehensive analysis start information
+        self.ai_log("=== AI ANALYSIS SESSION STARTED ===", "SYSTEM")
+        self.ai_log(f"Model: {model_name}", "INFO")
+        self.ai_log(f"Segments to analyze: {len(self.current_segments)}", "INFO")
+        self.ai_log(f"Total words to analyze: {sum(seg.word_count for seg in self.current_segments):,}", "INFO")
+        self.ai_log(f"Case facts length: {len(case_facts)} characters", "DEBUG")
+        self.ai_log(f"Case facts preview: {case_facts[:200]}{'...' if len(case_facts) > 200 else ''}", "DEBUG")
+        
+        # Log save options
+        save_individual = self.save_individual_checkbox.isChecked()
+        save_combined = self.save_combined_checkbox.isChecked()
+        self.ai_log(f"Save individual files: {save_individual}", "DEBUG")
+        self.ai_log(f"Save combined summary: {save_combined}", "DEBUG")
+        
+        # Start worker thread
+        self.ai_worker_thread = AIReviewWorker(
+            ai_manager=self.ai_review_manager,
+            segments=self.current_segments,
+            case_facts=case_facts,
+            model_name=model_name,
+            log_callback=self.ai_log_callback
+        )
+        
+        self.ai_worker_thread.progress_update.connect(self.ai_log_callback)
+        self.ai_worker_thread.segment_complete.connect(self.on_segment_complete)
+        self.ai_worker_thread.finished.connect(self.on_ai_analysis_finished)
+        self.ai_worker_thread.start()
+    
+    def ai_log_callback(self, message, level="INFO"):
+        """Enhanced callback for AI analysis logging with level detection."""
+        # Parse log level from message if present in enhanced format
+        if "] DEBUG:" in message:
+            level = "DEBUG"
+            msg = message.split("] DEBUG:", 1)[1].strip()
+        elif "] ERROR:" in message:
+            level = "ERROR" 
+            msg = message.split("] ERROR:", 1)[1].strip()
+        elif "] INFO:" in message:
+            level = "INFO"
+            msg = message.split("] INFO:", 1)[1].strip()
+        elif "] WARNING:" in message:
+            level = "WARNING"
+            msg = message.split("] WARNING:", 1)[1].strip()
+        else:
+            # Legacy format or direct message
+            msg = message
+            
+        self.ai_log(msg, level)
+    
+    def stop_ai_analysis(self):
+        """Stop the AI analysis process with logging."""
+        self.ai_log("User requested analysis cancellation", "WARNING")
+        if hasattr(self, 'ai_worker_thread') and self.ai_worker_thread:
+            self.ai_worker_thread.cancel()
+            self.ai_log("Cancellation request sent to worker thread", "INFO")
+    
+    def on_segment_complete(self, result, current, total):
+        """Handle completion of a segment analysis with detailed logging."""
+        # Update progress
+        progress_pct = (current / total) * 100
+        self.ai_progress.setValue(int(progress_pct))
+        
+        segment = result['segment']
+        
+        if result['success']:
+            # Extract relevance information
+            relevance_info = result.get('relevance_score', {})
+            if isinstance(relevance_info, dict):
+                is_relevant = relevance_info.get('is_relevant', False)
+                relevance_score = relevance_info.get('relevance_score', 0)
+            else:
+                is_relevant = False
+                relevance_score = 0
+            
+            # Update progress label with relevance info
+            relevance_text = "RELEVANT" if is_relevant else "Not relevant"
+            self.ai_progress_label.setText(f"Segment {current}/{total}: {segment.filename} - {relevance_text}")
+            
+            # Log detailed completion info
+            processing_time = result.get('processing_time', 0)
+            response_length = result.get('response_length', 0)
+            response_words = result.get('response_words', 0)
+            
+            self.ai_log(f"✓ Completed {segment.filename} ({processing_time:.1f}s)", "SUCCESS")
+            self.ai_log(f"  Relevance: {relevance_text} (Score: {relevance_score})", "DEBUG")
+            self.ai_log(f"  Response: {response_length} chars, {response_words} words", "DEBUG")
+            
+            # Log AI metrics if available
+            ai_metrics = result.get('ai_metrics', {})
+            if ai_metrics.get('eval_count'):
+                self.ai_log(f"  AI tokens generated: {ai_metrics['eval_count']}", "DEBUG")
+            if ai_metrics.get('eval_duration'):
+                eval_duration = ai_metrics['eval_duration'] / 1e9  # Convert nanoseconds to seconds
+                self.ai_log(f"  AI evaluation time: {eval_duration:.2f}s", "DEBUG")
+        else:
+            error = result.get('error', 'Unknown error')
+            self.ai_progress_label.setText(f"Segment {current}/{total}: {segment.filename} - FAILED")
+            self.ai_log(f"✗ Failed {segment.filename}: {error}", "ERROR")
+            
+            # Log additional error details
+            if 'error_type' in result:
+                self.ai_log(f"  Error type: {result['error_type']}", "DEBUG")
+            if 'ai_error_details' in result:
+                ai_error = result['ai_error_details']
+                if isinstance(ai_error, dict) and 'error' in ai_error:
+                    self.ai_log(f"  AI error: {ai_error['error']}", "DEBUG")
+        
+        # Add result to display
+        self.add_result_to_display(result, current)
+    
+    def add_result_to_display(self, result, segment_number):
+        """Add a single analysis result to the display with enhanced formatting."""
+        # Create result widget
+        result_frame = QFrame()
+        result_frame.setFrameStyle(QFrame.StyledPanel)
+        result_frame.setStyleSheet("""
+            QFrame {
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                margin: 5px;
+                padding: 10px;
+                background-color: #f9f9f9;
+            }
+        """)
+        
+        result_layout = QVBoxLayout(result_frame)
+        
+        # Header
+        header_layout = QHBoxLayout()
+        
+        # Status indicator and filename
+        segment = result['segment']
+        if result['success']:
+            # Extract relevance information for better display
+            relevance_info = result.get('relevance_score', {})
+            if isinstance(relevance_info, dict):
+                is_relevant = relevance_info.get('is_relevant', False)
+                relevance_score = relevance_info.get('relevance_score', 0)
+            else:
+                is_relevant = False
+                relevance_score = 0
+                
+            status_color = "#28a745" if is_relevant else "#6c757d"  # Green for relevant, gray for not relevant
+            status_icon = "✓"
+            relevance_text = f"RELEVANT (Score: {relevance_score})" if is_relevant else "Not Relevant"
+        else:
+            status_color = "#dc3545"  # Red for errors
+            status_icon = "✗"
+            relevance_text = f"Error: {result.get('error', 'Unknown error')}"
+        
+        header_label = QLabel(f"{status_icon} Segment {segment_number}: {segment.filename}")
+        header_label.setStyleSheet(f"font-weight: bold; color: {status_color}; font-size: 12px;")
+        header_layout.addWidget(header_label)
+        
+        header_layout.addStretch()
+        
+        # Processing time and metrics
+        if result['success']:
+            processing_time = result.get('processing_time', 0)
+            response_length = result.get('response_length', 0)
+            response_words = result.get('response_words', 0)
+            
+            metrics_text = f"{processing_time:.1f}s | {response_words} words"
+            metrics_label = QLabel(metrics_text)
+            metrics_label.setStyleSheet("color: #6c757d; font-size: 10px;")
+            header_layout.addWidget(metrics_label)
+        
+        result_layout.addLayout(header_layout)
+        
+        # Relevance indicator with more details
+        relevance_layout = QHBoxLayout()
+        relevance_label = QLabel(relevance_text)
+        relevance_label.setStyleSheet(f"color: {status_color}; font-style: italic; margin-bottom: 10px; font-size: 11px;")
+        relevance_layout.addWidget(relevance_label)
+        
+        # Add word count info
+        word_count_label = QLabel(f"({segment.word_count} words in transcript)")
+        word_count_label.setStyleSheet("color: #6c757d; font-size: 10px;")
+        relevance_layout.addWidget(word_count_label)
+        
+        relevance_layout.addStretch()
+        result_layout.addLayout(relevance_layout)
+        
+        # AI response (if successful)
+        if result['success'] and result['ai_response']:
+            response_text = QTextEdit()
+            response_text.setPlainText(result['ai_response'])
+            response_text.setReadOnly(True)
+            response_text.setMaximumHeight(150)
+            response_text.setStyleSheet("""
+                QTextEdit {
+                    background-color: white;
+                    border: 1px solid #ccc;
+                    border-radius: 4px;
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                    font-size: 11px;
+                    padding: 8px;
+                }
+            """)
+            result_layout.addWidget(response_text)
+        
+        # Insert before the stretch at the end
+        self.ai_results_layout.insertWidget(self.ai_results_layout.count() - 1, result_frame)
+        
+        # Scroll to the new result
+        self.ai_results_area.verticalScrollBar().setValue(
+            self.ai_results_area.verticalScrollBar().maximum()
+        )
+    
+    def on_ai_analysis_finished(self, results):
+        """Handle completion of all AI analysis with comprehensive logging and statistics."""
+        # Update UI state
+        self.analyze_btn.setEnabled(True)
+        self.stop_ai_btn.setEnabled(False)
+        self.test_connection_btn.setEnabled(True)
+        self.select_transcript_btn.setEnabled(True)
+        
+        # Update progress
+        self.ai_progress.setValue(100)
+        self.ai_progress_label.setText("Analysis complete")
+        
+        # Calculate and log comprehensive statistics
+        total_segments = len(results)
+        successful_analyses = sum(1 for r in results if r.get('success', False))
+        failed_analyses = total_segments - successful_analyses
+        
+        # Calculate relevance statistics
+        relevant_segments = 0
+        total_processing_time = 0
+        total_response_words = 0
+        
+        for result in results:
+            if result.get('success', False):
+                total_processing_time += result.get('processing_time', 0)
+                total_response_words += result.get('response_words', 0)
+                
+                relevance_info = result.get('relevance_score', {})
+                if isinstance(relevance_info, dict) and relevance_info.get('is_relevant', False):
+                    relevant_segments += 1
+        
+        avg_processing_time = total_processing_time / successful_analyses if successful_analyses > 0 else 0
+        avg_response_words = total_response_words / successful_analyses if successful_analyses > 0 else 0
+        
+        # Log comprehensive completion statistics
+        self.ai_log("=== AI ANALYSIS SESSION COMPLETED ===", "SYSTEM")
+        self.ai_log(f"✓ Analysis completed successfully", "SUCCESS")
+        self.ai_log(f"Total segments: {total_segments}", "INFO")
+        self.ai_log(f"Successful analyses: {successful_analyses}", "INFO")
+        self.ai_log(f"Failed analyses: {failed_analyses}", "INFO")
+        self.ai_log(f"Relevant segments found: {relevant_segments}", "INFO")
+        self.ai_log(f"Total processing time: {total_processing_time:.1f}s", "INFO")
+        self.ai_log(f"Average processing time: {avg_processing_time:.1f}s per segment", "DEBUG")
+        self.ai_log(f"Average response length: {avg_response_words:.0f} words", "DEBUG")
+        
+        if failed_analyses > 0:
+            self.ai_log(f"⚠️  Some segments failed to analyze", "WARNING")
+        
+        if relevant_segments == 0 and successful_analyses > 0:
+            self.ai_log("⚠️  No relevant content found in any segments", "WARNING")
+        elif relevant_segments > 0:
+            relevance_pct = (relevant_segments / successful_analyses) * 100
+            self.ai_log(f"Found relevant content in {relevance_pct:.1f}% of analyzed segments", "INFO")
+        
+        # Save results if options are enabled
+        if results and (self.save_individual_checkbox.isChecked() or self.save_combined_checkbox.isChecked()):
+            self.save_ai_results(results)
+    
+    def save_ai_results(self, results):
+        """Save AI analysis results with comprehensive logging."""
+        self.ai_log("=== SAVING ANALYSIS RESULTS ===", "SYSTEM")
+        
+        def log_callback(message):
+            """Callback to capture detailed save logs."""
+            # Parse log level from message if present
+            if "] DEBUG:" in message:
+                level = "DEBUG"
+                msg = message.split("] DEBUG:", 1)[1].strip()
+            elif "] ERROR:" in message:
+                level = "ERROR" 
+                msg = message.split("] ERROR:", 1)[1].strip()
+            elif "] INFO:" in message:
+                level = "INFO"
+                msg = message.split("] INFO:", 1)[1].strip()
+            elif "] WARNING:" in message:
+                level = "WARNING"
+                msg = message.split("] WARNING:", 1)[1].strip()
+            else:
+                level = "INFO"
+                msg = message
+            
+            self.ai_log(msg, level)
+        
+        try:
+            # Get output directory (use current output folder setting)
+            output_directory = self.output_folder_label.text()
+            if output_directory == "No folder selected":
+                output_directory = "outputs"
+            
+            case_facts = self.case_facts_text.toPlainText().strip()
+            save_individual = self.save_individual_checkbox.isChecked()
+            save_combined = self.save_combined_checkbox.isChecked()
+            
+            self.ai_log(f"Output directory: {output_directory}", "DEBUG")
+            self.ai_log(f"Save individual files: {save_individual}", "DEBUG")
+            self.ai_log(f"Save combined summary: {save_combined}", "DEBUG")
+            
+            # Save using the enhanced save method
+            save_result = self.ai_review_manager.save_results_to_files(
+                results=results,
+                output_directory=output_directory,
+                case_facts=case_facts,
+                save_individual=save_individual,
+                save_combined=save_combined,
+                progress_callback=log_callback
+            )
+            
+            if save_result['success']:
+                files_saved = save_result['files_saved']
+                self.ai_log(f"✓ Successfully saved {len(files_saved)} files", "SUCCESS")
+                
+                for file_path in files_saved:
+                    self.ai_log(f"  Saved: {file_path}", "DEBUG")
+                    
+                if 'save_time' in save_result:
+                    self.ai_log(f"Save operation completed in {save_result['save_time']:.3f}s", "DEBUG")
+            else:
+                error = save_result.get('error', 'Unknown error')
+                self.ai_log(f"✗ Failed to save results: {error}", "ERROR")
+                
+                if 'error_type' in save_result:
+                    self.ai_log(f"Error type: {save_result['error_type']}", "DEBUG")
+                if 'traceback' in save_result:
+                    self.ai_log(f"Full traceback: {save_result['traceback']}", "DEBUG")
+                    
+        except Exception as e:
+            self.ai_log(f"Exception during save operation: {str(e)}", "ERROR")
+            import traceback
+            self.ai_log(f"Full traceback: {traceback.format_exc()}", "DEBUG")
+    
+    def clear_ai_results(self):
+        """Clear the AI results display."""
+        # Remove all result widgets except the stretch
+        while self.ai_results_layout.count() > 1:
+            child = self.ai_results_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+    
+    def clear_ai_logs(self):
+        """Clear the AI logs display."""
+        self.ai_log_text.clear()
+    
+    def ai_log(self, message: str, level: str = "INFO"):
+        """Add a message to the AI log display."""
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        
+        # Color coding based on log level
+        color_map = {
+            "INFO": "#ffffff",
+            "SUCCESS": "#28a745",
+            "WARNING": "#ffc107",
+            "ERROR": "#dc3545",
+            "DEBUG": "#6c757d",
+            "SYSTEM": "#17a2b8"
+        }
+        
+        # Icon mapping for different log levels
+        icon_map = {
+            "INFO": "ℹ️",
+            "SUCCESS": "✅",
+            "WARNING": "⚠️",
+            "ERROR": "❌",
+            "DEBUG": "🔍",
+            "SYSTEM": "🤖"
+        }
+        
+        color = color_map.get(level, "#ffffff")
+        icon = icon_map.get(level, "•")
+        
+        # Format message with HTML for colored output
+        formatted_message = f'<span style="color: {color};">[{timestamp}] {icon} {level}: {message}</span>'
+        
+        # Append as HTML to preserve colors
+        cursor = self.ai_log_text.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.insertHtml(formatted_message + "<br>")
+        
+        # Auto-scroll to bottom
+        self.ai_log_text.setTextCursor(cursor)
+    
     def closeEvent(self, event):
         """Handle application close event."""
         try:
@@ -1128,18 +2120,36 @@ Transcription Summary:
             if hasattr(self, 'timer') and self.timer:
                 self.timer.stop()
             
-            # Stop any running transcription
+            # Check for running operations
+            operations_running = []
+            
+            # Check transcription thread
             if hasattr(self, 'worker_thread') and self.worker_thread and self.worker_thread.isRunning():
+                operations_running.append("transcription")
+            
+            # Check AI analysis thread
+            if hasattr(self, 'ai_worker_thread') and self.ai_worker_thread and self.ai_worker_thread.isRunning():
+                operations_running.append("AI analysis")
+            
+            if operations_running:
+                operations_text = " and ".join(operations_running)
                 reply = QMessageBox.question(self, "Confirm Exit", 
-                                           "Transcription is in progress. Are you sure you want to exit?",
+                                           f"{operations_text.title()} is in progress. Are you sure you want to exit?",
                                            QMessageBox.Yes | QMessageBox.No)
                 if reply == QMessageBox.Yes:
-                    self.worker_thread.cancel()
-                    # Give the thread a reasonable time to finish
-                    if not self.worker_thread.wait(3000):  # 3 second timeout
-                        # Force terminate if it doesn't finish gracefully
-                        self.worker_thread.terminate()
-                        self.worker_thread.wait(1000)  # Wait another second for termination
+                    # Stop transcription
+                    if hasattr(self, 'worker_thread') and self.worker_thread:
+                        self.worker_thread.cancel()
+                        if not self.worker_thread.wait(3000):
+                            self.worker_thread.terminate()
+                            self.worker_thread.wait(1000)
+                    
+                    # Stop AI analysis
+                    if hasattr(self, 'ai_worker_thread') and self.ai_worker_thread:
+                        self.ai_worker_thread.cancel()
+                        if not self.ai_worker_thread.wait(3000):
+                            self.ai_worker_thread.terminate()
+                            self.ai_worker_thread.wait(1000)
                 else:
                     event.ignore()
                     return
