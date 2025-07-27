@@ -3,6 +3,7 @@ import re
 import threading
 import traceback
 import json
+import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Callable
 from datetime import datetime
@@ -101,46 +102,136 @@ class AIReviewManager:
         """
         self.ollama_client = OllamaClient(ollama_base_url)
         self.is_cancelled = False
+        self.enable_terminal_logging = True  # Enable comprehensive terminal logging
+        
+        # Initialize terminal logging
+        self._log_terminal_info("AI Review Manager initialized")
+        self._log_terminal_debug(f"Ollama base URL: {ollama_base_url}")
+        
+    def _log_terminal(self, level: str, message: str):
+        """Log message directly to terminal with timestamp and level."""
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            formatted_msg = f"[{timestamp}] {level}: {message}"
+            
+            if level in ["ERROR", "CRITICAL"]:
+                print(formatted_msg, file=sys.stderr, flush=True)
+            else:
+                print(formatted_msg, flush=True)
+        except Exception as e:
+            # Fallback logging if terminal logging fails
+            try:
+                print(f"[LOGGING ERROR] {e}: {message}", file=sys.stderr, flush=True)
+            except:
+                pass  # Silent fallback
+    
+    def _log_terminal_debug(self, message: str):
+        """Log debug message to terminal."""
+        if self.enable_terminal_logging:
+            self._log_terminal("DEBUG", message)
+    
+    def _log_terminal_info(self, message: str):
+        """Log info message to terminal."""
+        if self.enable_terminal_logging:
+            self._log_terminal("INFO", message)
+    
+    def _log_terminal_warning(self, message: str):
+        """Log warning message to terminal."""
+        if self.enable_terminal_logging:
+            self._log_terminal("WARNING", message)
+    
+    def _log_terminal_error(self, message: str):
+        """Log error message to terminal."""
+        if self.enable_terminal_logging:
+            self._log_terminal("ERROR", message)
+    
+    def _log_terminal_critical(self, message: str):
+        """Log critical error message to terminal."""
+        if self.enable_terminal_logging:
+            self._log_terminal("CRITICAL", message)
         
     def _log_debug(self, message: str, callback: Optional[Callable] = None):
-        """Log debug message with timestamp."""
+        """Log debug message with timestamp to both callback and terminal."""
         try:
             timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             log_msg = f"[{timestamp}] DEBUG: {message}"
+            
+            # Log to terminal
+            self._log_terminal_debug(message)
+            
+            # Log to callback if provided
             if callback:
                 callback(log_msg)
-        except Exception:
-            pass  # Silently handle logging errors
+        except Exception as e:
+            self._log_terminal_error(f"Logging error in _log_debug: {e}")
             
     def _log_error(self, message: str, callback: Optional[Callable] = None):
-        """Log error message with timestamp."""
+        """Log error message with timestamp to both callback and terminal."""
         try:
             timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             log_msg = f"[{timestamp}] ERROR: {message}"
+            
+            # Log to terminal
+            self._log_terminal_error(message)
+            
+            # Log to callback if provided
             if callback:
                 callback(log_msg)
-        except Exception:
-            pass  # Silently handle logging errors
+        except Exception as e:
+            self._log_terminal_critical(f"Critical logging error in _log_error: {e}")
             
     def _log_info(self, message: str, callback: Optional[Callable] = None):
-        """Log info message with timestamp."""
+        """Log info message with timestamp to both callback and terminal."""
         try:
             timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             log_msg = f"[{timestamp}] INFO: {message}"
+            
+            # Log to terminal
+            self._log_terminal_info(message)
+            
+            # Log to callback if provided
             if callback:
                 callback(log_msg)
-        except Exception:
-            pass  # Silently handle logging errors
+        except Exception as e:
+            self._log_terminal_error(f"Logging error in _log_info: {e}")
             
     def _log_warning(self, message: str, callback: Optional[Callable] = None):
-        """Log warning message with timestamp."""
+        """Log warning message with timestamp to both callback and terminal."""
         try:
             timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             log_msg = f"[{timestamp}] WARNING: {message}"
+            
+            # Log to terminal
+            self._log_terminal_warning(message)
+            
+            # Log to callback if provided
             if callback:
                 callback(log_msg)
-        except Exception:
-            pass  # Silently handle logging errors
+        except Exception as e:
+            self._log_terminal_error(f"Logging error in _log_warning: {e}")
+
+    def _log_exception(self, message: str, exception: Exception, callback: Optional[Callable] = None):
+        """Log exception with full traceback to both callback and terminal."""
+        try:
+            exc_type = type(exception).__name__
+            exc_message = str(exception)
+            full_traceback = traceback.format_exc()
+            
+            error_msg = f"{message} - {exc_type}: {exc_message}"
+            traceback_msg = f"Full traceback:\n{full_traceback}"
+            
+            # Log to terminal
+            self._log_terminal_error(error_msg)
+            self._log_terminal_debug(traceback_msg)
+            
+            # Log to callback if provided
+            if callback:
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                callback(f"[{timestamp}] ERROR: {error_msg}")
+                callback(f"[{timestamp}] DEBUG: {traceback_msg}")
+                
+        except Exception as e:
+            self._log_terminal_critical(f"Critical error in exception logging: {e}")
         
     def load_combined_transcript(self, transcript_path: str, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """
@@ -153,10 +244,12 @@ class AIReviewManager:
         Returns:
             Dict with success status, content, and detailed file information
         """
+        self._log_info(f"=== STARTING TRANSCRIPT LOADING ===", progress_callback)
         self._log_info(f"Loading combined transcript from: {transcript_path}", progress_callback)
         
         try:
             # Check if file exists
+            self._log_debug(f"Checking if file exists: {transcript_path}", progress_callback)
             if not os.path.exists(transcript_path):
                 error_msg = f"Transcript file not found: {transcript_path}"
                 self._log_error(error_msg, progress_callback)
@@ -166,6 +259,8 @@ class AIReviewManager:
                     'content': '',
                     'file_path': transcript_path
                 }
+                
+            self._log_debug("File exists, getting file statistics...", progress_callback)
 
             # Get file info
             file_stat = os.stat(transcript_path)
@@ -180,14 +275,23 @@ class AIReviewManager:
             is_json_file = file_extension == '.json'
             
             self._log_debug(f"File type detected: {'JSON' if is_json_file else 'Text'}", progress_callback)
+            self._log_debug(f"File extension: {file_extension}", progress_callback)
 
             # Read file content
+            self._log_debug("Starting file read operation...", progress_callback)
             start_time = datetime.now()
-            with open(transcript_path, 'r', encoding='utf-8') as f:
-                raw_content = f.read()
+            
+            try:
+                with open(transcript_path, 'r', encoding='utf-8') as f:
+                    raw_content = f.read()
+            except Exception as read_error:
+                self._log_exception("Error during file read", read_error, progress_callback)
+                raise
+                
             read_time = (datetime.now() - start_time).total_seconds()
             
             self._log_debug(f"File read completed in {read_time:.3f}s", progress_callback)
+            self._log_debug(f"Raw content length: {len(raw_content)} characters", progress_callback)
 
             if not raw_content.strip():
                 error_msg = "Transcript file is empty"
@@ -201,16 +305,22 @@ class AIReviewManager:
                 }
 
             # Process content based on file type
+            self._log_debug("Processing content based on file type...", progress_callback)
             if is_json_file:
                 try:
+                    self._log_debug("Attempting to parse JSON content...", progress_callback)
                     # Parse JSON content
                     json_data = json.loads(raw_content)
                     self._log_info("✓ JSON file parsed successfully", progress_callback)
+                    self._log_debug(f"JSON data type: {type(json_data)}", progress_callback)
                     
                     # Convert JSON to text format for processing
+                    self._log_debug("Converting JSON to text format...", progress_callback)
                     content = self._convert_json_to_text(json_data, progress_callback)
+                    self._log_debug(f"Converted content length: {len(content)} characters", progress_callback)
                     
                     # Store original JSON data for enhanced processing
+                    self._log_debug("Analyzing JSON structure...", progress_callback)
                     json_metadata = {
                         'is_json': True,
                         'original_json': json_data,
@@ -219,7 +329,7 @@ class AIReviewManager:
                     
                 except json.JSONDecodeError as e:
                     error_msg = f"Invalid JSON format: {str(e)}"
-                    self._log_error(error_msg, progress_callback)
+                    self._log_exception("JSON parsing failed", e, progress_callback)
                     return {
                         'success': False,
                         'error': error_msg,
@@ -229,18 +339,24 @@ class AIReviewManager:
                         'error_type': 'JSONDecodeError',
                         'error_details': str(e)
                     }
+                except Exception as json_error:
+                    self._log_exception("Unexpected error during JSON processing", json_error, progress_callback)
+                    raise
             else:
                 # Text file processing (existing logic)
+                self._log_debug("Processing as text file", progress_callback)
                 content = raw_content
                 json_metadata = {'is_json': False}
 
             # Analyze content
+            self._log_debug("Analyzing processed content...", progress_callback)
             char_count = len(content)
             word_count = len(content.split())
             line_count = len(content.splitlines())
             
             self._log_info(f"✓ Transcript loaded successfully", progress_callback)
             self._log_debug(f"Content stats: {char_count} chars, {word_count} words, {line_count} lines", progress_callback)
+            self._log_info(f"=== TRANSCRIPT LOADING COMPLETED ===", progress_callback)
 
             result = {
                 'success': True,
@@ -259,7 +375,7 @@ class AIReviewManager:
 
         except UnicodeDecodeError as e:
             error_msg = f"Unicode decode error: {str(e)}"
-            self._log_error(error_msg, progress_callback)
+            self._log_exception("Unicode decode error during file reading", e, progress_callback)
             self._log_debug(f"Try opening with different encoding. Error at position: {e.start}-{e.end}", progress_callback)
             return {
                 'success': False,
@@ -270,7 +386,7 @@ class AIReviewManager:
             }
         except PermissionError as e:
             error_msg = f"Permission denied accessing file: {str(e)}"
-            self._log_error(error_msg, progress_callback)
+            self._log_exception("Permission error accessing file", e, progress_callback)
             return {
                 'success': False,
                 'error': error_msg,
@@ -279,8 +395,7 @@ class AIReviewManager:
             }
         except Exception as e:
             error_msg = f"Error reading transcript file: {str(e)}"
-            self._log_error(error_msg, progress_callback)
-            self._log_debug(f"Full traceback: {traceback.format_exc()}", progress_callback)
+            self._log_exception("Unexpected error during transcript loading", e, progress_callback)
             return {
                 'success': False,
                 'error': error_msg,
@@ -512,16 +627,23 @@ class AIReviewManager:
         Returns:
             List of TranscriptSegment objects with detailed processing information
         """
-        self._log_info("Starting transcript segmentation...", progress_callback)
+        self._log_info("=== STARTING TRANSCRIPT SEGMENTATION ===", progress_callback)
+        self._log_debug(f"Input content length: {len(transcript_content) if transcript_content else 0} characters", progress_callback)
+        self._log_debug(f"JSON metadata provided: {json_metadata is not None}", progress_callback)
         
-        # Check if we have JSON metadata for enhanced processing
-        is_json = json_metadata and json_metadata.get('is_json', False)
-        if is_json:
-            self._log_info("Using JSON-optimized segmentation", progress_callback)
-            return self._segment_json_transcript(transcript_content, json_metadata, progress_callback)
-        else:
-            self._log_info("Using standard text segmentation", progress_callback)
-            return self._segment_text_transcript(transcript_content, progress_callback)
+        try:
+            # Check if we have JSON metadata for enhanced processing
+            is_json = json_metadata and json_metadata.get('is_json', False)
+            if is_json:
+                self._log_info("Using JSON-optimized segmentation", progress_callback)
+                self._log_debug(f"JSON structure: {json_metadata.get('json_structure', {})}", progress_callback)
+                return self._segment_json_transcript(transcript_content, json_metadata, progress_callback)
+            else:
+                self._log_info("Using standard text segmentation", progress_callback)
+                return self._segment_text_transcript(transcript_content, progress_callback)
+        except Exception as e:
+            self._log_exception("Critical error in segment_transcript", e, progress_callback)
+            return []
 
     def _segment_text_transcript(self, transcript_content: str, progress_callback: Optional[Callable] = None) -> List[TranscriptSegment]:
         """
@@ -534,10 +656,15 @@ class AIReviewManager:
         Returns:
             List of TranscriptSegment objects
         """
+        self._log_info("=== STARTING TEXT TRANSCRIPT SEGMENTATION ===", progress_callback)
         start_time = datetime.now()
         segments = []
         
         try:
+            if not transcript_content:
+                self._log_error("Empty transcript content provided", progress_callback)
+                return segments
+                
             # Split by recording delimiters (e.g., "==== recording_001.mp3 ====")
             # Pattern matches various delimiter formats
             delimiter_pattern = r'={3,}\s*([^=\n]+?\.(?:mp3|wav|m4a|flac|aac|ogg|wma|mp4|avi|mov|mkv))\s*={3,}'
@@ -546,65 +673,88 @@ class AIReviewManager:
             self._log_debug(f"Input content length: {len(transcript_content)} characters", progress_callback)
 
             # Find all delimiters first for analysis
-            delimiter_matches = list(re.finditer(delimiter_pattern, transcript_content, flags=re.IGNORECASE))
-            self._log_info(f"Found {len(delimiter_matches)} delimiter matches", progress_callback)
-            
-            for i, match in enumerate(delimiter_matches):
-                filename = match.group(1)
-                self._log_debug(f"  Delimiter {i+1}: {filename} at position {match.start()}-{match.end()}", progress_callback)
+            self._log_debug("Searching for delimiter matches...", progress_callback)
+            try:
+                delimiter_matches = list(re.finditer(delimiter_pattern, transcript_content, flags=re.IGNORECASE))
+                self._log_info(f"Found {len(delimiter_matches)} delimiter matches", progress_callback)
+                
+                for i, match in enumerate(delimiter_matches):
+                    filename = match.group(1)
+                    self._log_debug(f"  Delimiter {i+1}: {filename} at position {match.start()}-{match.end()}", progress_callback)
+            except Exception as re_error:
+                self._log_exception("Error during delimiter matching", re_error, progress_callback)
+                raise
 
             # Split the content by the delimiters
-            parts = re.split(delimiter_pattern, transcript_content, flags=re.IGNORECASE)
-            self._log_debug(f"Split into {len(parts)} parts", progress_callback)
+            self._log_debug("Splitting content by delimiters...", progress_callback)
+            try:
+                parts = re.split(delimiter_pattern, transcript_content, flags=re.IGNORECASE)
+                self._log_debug(f"Split into {len(parts)} parts", progress_callback)
+            except Exception as split_error:
+                self._log_exception("Error during content splitting", split_error, progress_callback)
+                raise
 
             # Process the parts - every odd index is a filename, every even index is content
             current_filename = None
             segment_index = 0
 
+            self._log_debug("Processing split parts...", progress_callback)
             for i, part in enumerate(parts):
-                part_length = len(part.strip())
-                self._log_debug(f"Processing part {i}: {part_length} characters", progress_callback)
-                
-                if i == 0:
-                    # First part might be content before any delimiter
-                    if part.strip():
-                        content = part.strip()
-                        segment = TranscriptSegment(
-                            filename="unknown_recording",
-                            content=content,
-                            segment_index=segment_index
-                        )
-                        segments.append(segment)
-                        self._log_info(f"Created header segment: {segment}", progress_callback)
-                        segment_index += 1
-                elif i % 2 == 1:
-                    # Odd indices are filenames from the regex capture groups
-                    current_filename = part.strip()
-                    self._log_debug(f"Found filename: {current_filename}", progress_callback)
-                else:
-                    # Even indices (except 0) are content sections
-                    if current_filename and part.strip():
-                        content = part.strip()
-                        segment = TranscriptSegment(
-                            filename=current_filename,
-                            content=content,
-                            segment_index=segment_index
-                        )
-                        segments.append(segment)
-                        self._log_info(f"Created segment: {segment}", progress_callback)
-                        segment_index += 1
-                    elif current_filename and not part.strip():
-                        self._log_warning(f"Empty content for recording: {current_filename}", progress_callback)
+                try:
+                    part_length = len(part.strip()) if part else 0
+                    self._log_debug(f"Processing part {i}: {part_length} characters", progress_callback)
+                    
+                    if i == 0:
+                        # First part might be content before any delimiter
+                        if part and part.strip():
+                            content = part.strip()
+                            segment = TranscriptSegment(
+                                filename="unknown_recording",
+                                content=content,
+                                segment_index=segment_index
+                            )
+                            segments.append(segment)
+                            self._log_info(f"Created header segment: {segment}", progress_callback)
+                            segment_index += 1
+                    elif i % 2 == 1:
+                        # Odd indices are filenames from the regex capture groups
+                        current_filename = part.strip() if part else None
+                        self._log_debug(f"Found filename: {current_filename}", progress_callback)
+                    else:
+                        # Even indices (except 0) are content sections
+                        if current_filename and part and part.strip():
+                            content = part.strip()
+                            try:
+                                segment = TranscriptSegment(
+                                    filename=current_filename,
+                                    content=content,
+                                    segment_index=segment_index
+                                )
+                                segments.append(segment)
+                                self._log_info(f"Created segment: {segment}", progress_callback)
+                                segment_index += 1
+                            except Exception as segment_error:
+                                self._log_exception(f"Error creating segment for {current_filename}", segment_error, progress_callback)
+                                continue
+                        elif current_filename and (not part or not part.strip()):
+                            self._log_warning(f"Empty content for recording: {current_filename}", progress_callback)
+                except Exception as part_error:
+                    self._log_exception(f"Error processing part {i}", part_error, progress_callback)
+                    continue
 
             # If no delimiters found, treat the entire content as one segment
-            if not segments and transcript_content.strip():
-                segment = TranscriptSegment(
-                    filename="combined_transcript",
-                    content=transcript_content.strip(),
-                    segment_index=0
-                )
-                segments.append(segment)
-                self._log_info(f"No delimiters found, created single segment: {segment}", progress_callback)
+            if not segments and transcript_content and transcript_content.strip():
+                self._log_info("No delimiters found, creating single segment", progress_callback)
+                try:
+                    segment = TranscriptSegment(
+                        filename="combined_transcript",
+                        content=transcript_content.strip(),
+                        segment_index=0
+                    )
+                    segments.append(segment)
+                    self._log_info(f"Created single segment: {segment}", progress_callback)
+                except Exception as single_segment_error:
+                    self._log_exception("Error creating single segment", single_segment_error, progress_callback)
 
             processing_time = (datetime.now() - start_time).total_seconds()
             
@@ -619,12 +769,12 @@ class AIReviewManager:
             for i, segment in enumerate(segments):
                 self._log_debug(f"  Segment {i+1}: {segment.filename} ({segment.word_count} words)", progress_callback)
 
+            self._log_info("=== TEXT TRANSCRIPT SEGMENTATION COMPLETED ===", progress_callback)
             return segments
             
         except Exception as e:
             error_msg = f"Error during text transcript segmentation: {str(e)}"
-            self._log_error(error_msg, progress_callback)
-            self._log_debug(f"Full traceback: {traceback.format_exc()}", progress_callback)
+            self._log_exception("Critical error in _segment_text_transcript", e, progress_callback)
             
             # Return empty list but log the error
             return []
@@ -1098,43 +1248,90 @@ JSON DATA GUIDANCE:
         Returns:
             Dict with detailed analysis results and processing metrics
         """
+        self._log_info(f"=== STARTING SEGMENT ANALYSIS ===", progress_callback)
         segment_start_time = datetime.now()
         
-        self._log_info(f"Starting analysis of segment: {segment.filename}", progress_callback)
-        self._log_debug(f"Segment details: {segment.word_count} words, index {segment.segment_index}", progress_callback)
-        self._log_debug(f"Using model: {model_name}", progress_callback)
-        
-        if self.is_cancelled:
-            self._log_warning("Analysis cancelled by user", progress_callback)
-            return {
-                'success': False,
-                'error': 'Analysis cancelled',
-                'segment': segment,
-                'ai_response': '',
-                'processing_time': 0,
-                'cancelled': True
-            }
-
+        # Validate inputs
         try:
-            # Build the prompt
-            prompt_start_time = datetime.now()
-            prompt = self.build_analysis_prompt(case_facts, segment, progress_callback)
-            prompt_build_time = (datetime.now() - prompt_start_time).total_seconds()
+            if not segment:
+                error_msg = "No segment provided for analysis"
+                self._log_error(error_msg, progress_callback)
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'segment': None,
+                    'ai_response': '',
+                    'processing_time': 0
+                }
+                
+            self._log_info(f"Analyzing segment: {segment.filename}", progress_callback)
+            self._log_debug(f"Segment details: {segment.word_count} words, index {segment.segment_index}", progress_callback)
+            self._log_debug(f"Using model: {model_name}", progress_callback)
+            self._log_debug(f"Case facts length: {len(case_facts) if case_facts else 0} characters", progress_callback)
             
-            self._log_debug(f"Prompt built in {prompt_build_time:.3f}s", progress_callback)
+            if self.is_cancelled:
+                self._log_warning("Analysis cancelled by user", progress_callback)
+                return {
+                    'success': False,
+                    'error': 'Analysis cancelled',
+                    'segment': segment,
+                    'ai_response': '',
+                    'processing_time': 0,
+                    'cancelled': True
+                }
+
+            # Build the prompt
+            self._log_debug("Building analysis prompt...", progress_callback)
+            prompt_start_time = datetime.now()
+            try:
+                prompt = self.build_analysis_prompt(case_facts, segment, progress_callback)
+                prompt_build_time = (datetime.now() - prompt_start_time).total_seconds()
+                
+                self._log_debug(f"Prompt built in {prompt_build_time:.3f}s", progress_callback)
+                
+                # Safe prompt length logging
+                try:
+                    prompt_len = len(prompt) if prompt else 0
+                    self._log_debug(f"Prompt length: {prompt_len} characters", progress_callback)
+                except Exception as len_error:
+                    self._log_error(f"Error getting prompt length: {str(len_error)}", progress_callback)
+                    self._log_debug(f"Prompt type: {type(prompt)}, prompt value: {str(prompt)[:100] if prompt else 'None'}", progress_callback)
+            except Exception as prompt_error:
+                self._log_exception("Error building analysis prompt", prompt_error, progress_callback)
+                return {
+                    'success': False,
+                    'error': f'Prompt building failed: {str(prompt_error)}',
+                    'segment': segment,
+                    'ai_response': '',
+                    'processing_time': (datetime.now() - segment_start_time).total_seconds()
+                }
 
             # Send to AI model
+            self._log_info("Sending request to AI model...", progress_callback)
             ai_start_time = datetime.now()
-            ai_result = self.ollama_client.generate_response(
-                model=model_name,
-                prompt=prompt,
-                progress_callback=progress_callback
-            )
-            ai_processing_time = (datetime.now() - ai_start_time).total_seconds()
+            try:
+                ai_result = self.ollama_client.generate_response(
+                    model=model_name,
+                    prompt=prompt,
+                    progress_callback=progress_callback
+                )
+                ai_processing_time = (datetime.now() - ai_start_time).total_seconds()
+                self._log_debug(f"AI request completed in {ai_processing_time:.1f}s", progress_callback)
+            except Exception as ai_error:
+                self._log_exception("Error during AI request", ai_error, progress_callback)
+                ai_processing_time = (datetime.now() - ai_start_time).total_seconds()
+                return {
+                    'success': False,
+                    'error': f'AI request failed: {str(ai_error)}',
+                    'segment': segment,
+                    'ai_response': '',
+                    'processing_time': (datetime.now() - segment_start_time).total_seconds(),
+                    'ai_processing_time': ai_processing_time
+                }
             
             total_segment_time = (datetime.now() - segment_start_time).total_seconds()
             
-            if ai_result['success']:
+            if ai_result and ai_result.get('success'):
                 response_length = len(ai_result.get('response', ''))
                 response_words = len(ai_result.get('response', '').split())
                 
@@ -1143,12 +1340,24 @@ JSON DATA GUIDANCE:
                 self._log_debug(f"Total segment processing: {total_segment_time:.1f}s", progress_callback)
                 
                 # Analyze response for relevance indicators
-                relevance_score = self._analyze_response_relevance(ai_result.get('response', ''), progress_callback)
+                self._log_debug("Analyzing response relevance...", progress_callback)
+                try:
+                    relevance_score = self._analyze_response_relevance(ai_result.get('response', ''), progress_callback)
+                except Exception as relevance_error:
+                    self._log_exception("Error analyzing response relevance", relevance_error, progress_callback)
+                    relevance_score = {'error': str(relevance_error)}
                 
                 # Extract crime-relevant sections with timestamps
-                crime_sections = self.extract_crime_relevant_sections(
-                    ai_result.get('response', ''), segment, progress_callback
-                )
+                self._log_debug("Extracting crime-relevant sections...", progress_callback)
+                try:
+                    crime_sections = self.extract_crime_relevant_sections(
+                        ai_result.get('response', ''), segment, progress_callback
+                    )
+                except Exception as extraction_error:
+                    self._log_exception("Error extracting crime-relevant sections", extraction_error, progress_callback)
+                    crime_sections = []
+                
+                self._log_info(f"=== SEGMENT ANALYSIS COMPLETED SUCCESSFULLY ===", progress_callback)
                 
                 return {
                     'success': True,
@@ -1170,7 +1379,7 @@ JSON DATA GUIDANCE:
                     }
                 }
             else:
-                error_msg = ai_result.get('error', 'Unknown AI error')
+                error_msg = ai_result.get('error', 'Unknown AI error') if ai_result else 'No AI response received'
                 self._log_error(f"AI analysis failed for {segment.filename}: {error_msg}", progress_callback)
                 
                 return {
@@ -1185,9 +1394,8 @@ JSON DATA GUIDANCE:
                 }
 
         except Exception as e:
-            error_msg = f"Error analyzing segment {segment.filename}: {str(e)}"
-            self._log_error(error_msg, progress_callback)
-            self._log_debug(f"Full traceback: {traceback.format_exc()}", progress_callback)
+            error_msg = f"Error analyzing segment {getattr(segment, 'filename', 'unknown')}: {str(e)}"
+            self._log_exception("Critical error in analyze_segment", e, progress_callback)
             
             total_time = (datetime.now() - segment_start_time).total_seconds()
             
@@ -1716,94 +1924,163 @@ JSON DATA GUIDANCE:
         Returns:
             List of detailed analysis results with performance metrics
         """
+        self._log_info(f"=== STARTING BATCH ANALYSIS OF ALL SEGMENTS ===", progress_callback)
         analysis_start_time = datetime.now()
         results = []
         total_segments = len(segments)
         
-        self._log_info(f"Starting analysis of {total_segments} recording segments...", progress_callback)
-        self._log_debug(f"Model: {model_name}", progress_callback)
-        self._log_debug(f"Case facts length: {len(case_facts)} characters", progress_callback)
-        
-        # Log segment summary
-        total_words = sum(seg.word_count for seg in segments)
-        self._log_info(f"Total words to analyze: {total_words}", progress_callback)
-        
-        successful_analyses = 0
-        failed_analyses = 0
-        total_processing_time = 0
-        
-        for i, segment in enumerate(segments):
-            if self.is_cancelled:
-                self._log_warning(f"Analysis cancelled at segment {i+1}/{total_segments}", progress_callback)
-                break
-
-            segment_number = i + 1
-            self._log_info(f"Processing segment {segment_number}/{total_segments}: {segment.filename}", progress_callback)
-            
-            # Analyze this segment
-            result = self.analyze_segment(
-                segment=segment,
-                case_facts=case_facts,
-                model_name=model_name,
-                progress_callback=progress_callback
-            )
-
-            results.append(result)
-            
-            # Update statistics
-            if result['success']:
-                successful_analyses += 1
-                total_processing_time += result.get('processing_time', 0)
+        # Validate inputs
+        try:
+            if not segments:
+                self._log_error("No segments provided for analysis", progress_callback)
+                return results
                 
-                # Log success with relevance info
-                relevance_info = result.get('relevance_score', {})
-                if isinstance(relevance_info, dict) and relevance_info.get('is_relevant'):
-                    self._log_info(f"✓ {segment.filename}: RELEVANT content found", progress_callback)
-                else:
-                    self._log_info(f"✓ {segment.filename}: No relevant content", progress_callback)
-            else:
-                failed_analyses += 1
-                error = result.get('error', 'Unknown error')
-                self._log_error(f"✗ {segment.filename}: {error}", progress_callback)
-
-            # Notify completion of this segment
-            if segment_complete_callback:
+            if not isinstance(segments, list):
+                self._log_error(f"Invalid segments type: {type(segments)}", progress_callback)
+                return results
+                
+            self._log_info(f"Analyzing {total_segments} recording segments...", progress_callback)
+            self._log_debug(f"Model: {model_name}", progress_callback)
+            self._log_debug(f"Case facts length: {len(case_facts) if case_facts else 0} characters", progress_callback)
+            
+            # Log segment summary
+            try:
+                total_words = sum(seg.word_count for seg in segments if hasattr(seg, 'word_count'))
+                self._log_info(f"Total words to analyze: {total_words}", progress_callback)
+                
+                # Log individual segment info
+                for i, segment in enumerate(segments):
+                    try:
+                        if hasattr(segment, 'filename') and hasattr(segment, 'word_count'):
+                            self._log_debug(f"  Segment {i+1}: {segment.filename} ({segment.word_count} words)", progress_callback)
+                        else:
+                            self._log_warning(f"  Segment {i+1}: Invalid segment object", progress_callback)
+                    except Exception as seg_log_error:
+                        self._log_exception(f"Error logging segment {i+1} info", seg_log_error, progress_callback)
+            except Exception as summary_error:
+                self._log_exception("Error generating segment summary", summary_error, progress_callback)
+            
+            successful_analyses = 0
+            failed_analyses = 0
+            total_processing_time = 0
+            
+            for i, segment in enumerate(segments):
                 try:
-                    segment_complete_callback(result, segment_number, total_segments)
-                except Exception as e:
-                    self._log_warning(f"Error in segment complete callback: {str(e)}", progress_callback)
+                    if self.is_cancelled:
+                        self._log_warning(f"Analysis cancelled at segment {i+1}/{total_segments}", progress_callback)
+                        break
 
-            # Log progress summary
-            progress_pct = (segment_number / total_segments) * 100
-            self._log_debug(f"Progress: {segment_number}/{total_segments} ({progress_pct:.1f}%)", progress_callback)
+                    segment_number = i + 1
+                    self._log_info(f"=== PROCESSING SEGMENT {segment_number}/{total_segments} ===", progress_callback)
+                    
+                    # Validate segment before processing
+                    if not segment:
+                        self._log_error(f"Segment {segment_number} is None", progress_callback)
+                        failed_analyses += 1
+                        continue
+                        
+                    if not hasattr(segment, 'filename'):
+                        self._log_error(f"Segment {segment_number} missing filename attribute", progress_callback)
+                        failed_analyses += 1
+                        continue
+                        
+                    self._log_info(f"Processing segment {segment_number}/{total_segments}: {segment.filename}", progress_callback)
+                    
+                    # Analyze this segment
+                    segment_start_time = datetime.now()
+                    try:
+                        result = self.analyze_segment(
+                            segment=segment,
+                            case_facts=case_facts,
+                            model_name=model_name,
+                            progress_callback=progress_callback
+                        )
+                        segment_time = (datetime.now() - segment_start_time).total_seconds()
+                        self._log_debug(f"Segment {segment_number} analysis completed in {segment_time:.1f}s", progress_callback)
+                    except Exception as analyze_error:
+                        self._log_exception(f"Error analyzing segment {segment_number}", analyze_error, progress_callback)
+                        segment_time = (datetime.now() - segment_start_time).total_seconds()
+                        result = {
+                            'success': False,
+                            'error': f'Analysis exception: {str(analyze_error)}',
+                            'segment': segment,
+                            'ai_response': '',
+                            'processing_time': segment_time,
+                            'error_type': type(analyze_error).__name__
+                        }
 
-        # Final analysis summary
-        total_analysis_time = (datetime.now() - analysis_start_time).total_seconds()
-        avg_time_per_segment = total_processing_time / successful_analyses if successful_analyses > 0 else 0
-        
-        self._log_info(f"Analysis completed in {total_analysis_time:.1f}s", progress_callback)
-        self._log_info(f"Results: {successful_analyses} successful, {failed_analyses} failed", progress_callback)
-        if successful_analyses > 0:
-            self._log_debug(f"Average processing time per segment: {avg_time_per_segment:.1f}s", progress_callback)
-        
-        # Count relevant segments
-        relevant_segments = sum(1 for r in results 
-                              if r.get('success') and 
-                              isinstance(r.get('relevance_score'), dict) and 
-                              r.get('relevance_score', {}).get('is_relevant'))
-        
-        self._log_info(f"Found {relevant_segments} segments with relevant content", progress_callback)
+                    results.append(result)
+                    
+                    # Update statistics
+                    if result and result.get('success'):
+                        successful_analyses += 1
+                        total_processing_time += result.get('processing_time', 0)
+                        
+                        # Log success with relevance info
+                        try:
+                            relevance_info = result.get('relevance_score', {})
+                            if isinstance(relevance_info, dict) and relevance_info.get('is_relevant'):
+                                self._log_info(f"✓ {segment.filename}: RELEVANT content found", progress_callback)
+                            else:
+                                self._log_info(f"✓ {segment.filename}: No relevant content", progress_callback)
+                        except Exception as relevance_log_error:
+                            self._log_warning(f"Error logging relevance for {segment.filename}: {str(relevance_log_error)}", progress_callback)
+                    else:
+                        failed_analyses += 1
+                        error = result.get('error', 'Unknown error') if result else 'No result returned'
+                        self._log_error(f"✗ {segment.filename}: {error}", progress_callback)
 
-        return results
+                    # Notify completion of this segment
+                    if segment_complete_callback:
+                        try:
+                            segment_complete_callback(result, segment_number, total_segments)
+                        except Exception as callback_error:
+                            self._log_exception("Error in segment complete callback", callback_error, progress_callback)
+
+                    # Log progress summary
+                    progress_pct = (segment_number / total_segments) * 100
+                    self._log_debug(f"Progress: {segment_number}/{total_segments} ({progress_pct:.1f}%)", progress_callback)
+                    
+                except Exception as segment_error:
+                    self._log_exception(f"Critical error processing segment {i+1}", segment_error, progress_callback)
+                    failed_analyses += 1
+                    continue
+
+            # Final analysis summary
+            total_analysis_time = (datetime.now() - analysis_start_time).total_seconds()
+            avg_time_per_segment = total_processing_time / successful_analyses if successful_analyses > 0 else 0
+            
+            self._log_info(f"=== BATCH ANALYSIS COMPLETED ===", progress_callback)
+            self._log_info(f"Analysis completed in {total_analysis_time:.1f}s", progress_callback)
+            self._log_info(f"Results: {successful_analyses} successful, {failed_analyses} failed", progress_callback)
+            if successful_analyses > 0:
+                self._log_debug(f"Average processing time per segment: {avg_time_per_segment:.1f}s", progress_callback)
+            
+            # Count relevant segments
+            try:
+                relevant_segments = sum(1 for r in results 
+                                      if r and r.get('success') and 
+                                      isinstance(r.get('relevance_score'), dict) and 
+                                      r.get('relevance_score', {}).get('is_relevant'))
+                
+                self._log_info(f"Found {relevant_segments} segments with relevant content", progress_callback)
+            except Exception as count_error:
+                self._log_exception("Error counting relevant segments", count_error, progress_callback)
+
+            return results
+            
+        except Exception as e:
+            self._log_exception("Critical error in analyze_all_segments", e, progress_callback)
+            return results
 
     def cancel_analysis(self, progress_callback: Optional[Callable] = None):
         """Cancel ongoing analysis with logging."""
-        self._log_info("Analysis cancellation requested", progress_callback)
+        self._log_info("=== ANALYSIS CANCELLATION REQUESTED ===", progress_callback)
         self.is_cancelled = True
 
     def reset_cancellation(self, progress_callback: Optional[Callable] = None):
         """Reset cancellation flag for new analysis with logging."""
-        self._log_debug("Resetting cancellation flag", progress_callback)
+        self._log_debug("Resetting cancellation flag for new analysis", progress_callback)
         self.is_cancelled = False
 
     def save_results_to_files(self, results: List[Dict[str, Any]], output_directory: str,
