@@ -120,8 +120,31 @@ class AIReviewWorker(QThread):
                 self.segment_complete.emit(result, current, total)
         
         try:
+            # Validate inputs first
+            if not self.segments:
+                error_msg = "No segments provided for analysis"
+                progress_callback(error_msg)
+                self.finished.emit([])
+                return
+                
+            if not self.case_facts or not self.case_facts.strip():
+                error_msg = "No case facts provided for analysis"
+                progress_callback(error_msg)
+                self.finished.emit([])
+                return
+                
+            if not self.model_name:
+                error_msg = "No model name provided for analysis"
+                progress_callback(error_msg)
+                self.finished.emit([])
+                return
+            
             # Reset cancellation flag in the AI manager
-            self.ai_manager.reset_cancellation(progress_callback)
+            try:
+                self.ai_manager.reset_cancellation(progress_callback)
+            except Exception as e:
+                progress_callback(f"Error resetting AI manager: {str(e)}")
+                # Continue anyway
             
             # Start the comprehensive analysis
             progress_callback("Starting comprehensive AI analysis...")
@@ -1658,8 +1681,19 @@ Transcription Summary:
                     self.ai_log(f"JSON file detected: {result.get('json_structure', {}).get('estimated_segments', 0)} estimated segments", "INFO")
                 
                 # Segment the transcript with JSON metadata
-                segments = self.ai_review_manager.segment_transcript(result['content'], log_callback, json_metadata)
-                self.current_segments = segments
+                try:
+                    segments = self.ai_review_manager.segment_transcript(
+                        transcript_content=result['content'], 
+                        progress_callback=log_callback, 
+                        json_metadata=json_metadata
+                    )
+                    self.current_segments = segments
+                except Exception as e:
+                    self.ai_log(f"Error segmenting transcript: {str(e)}", "ERROR")
+                    import traceback
+                    self.ai_log(f"Segmentation traceback: {traceback.format_exc()}", "DEBUG")
+                    self.current_segments = []
+                    return
                 
                 # Update UI with segment info
                 total_words = sum(segment.word_count for segment in segments)
@@ -1718,62 +1752,88 @@ Transcription Summary:
         if status_parts:
             self.ai_log(f"Analyze button disabled: {', '.join(status_parts)}", "DEBUG")
         else:
-            self.ai_log("Analyze button enabled: all requirements met", "DEBUG")
-    
+                    self.ai_log("Analyze button enabled: all requirements met", "DEBUG")
+
     def start_ai_analysis(self):
         """Start AI analysis of transcript segments with comprehensive logging."""
-        case_facts = self.case_facts_text.toPlainText().strip()
-        if not case_facts:
-            QMessageBox.warning(self, "Warning", "Please enter case facts to analyze.")
-            return
-        
-        if not hasattr(self, 'current_segments') or not self.current_segments:
-            QMessageBox.warning(self, "Warning", "Please select and load a transcript file.")
-            return
-        
-        # Get selected model
-        model_name = self.ai_model_combo.currentData() or "mistral"
-        
-        # Clear previous results
-        self.clear_ai_results()
-        
-        # Reset progress
-        self.ai_progress.setValue(0)
-        self.ai_progress_label.setText("Starting AI analysis...")
-        
-        # Update UI state
-        self.analyze_btn.setEnabled(False)
-        self.stop_ai_btn.setEnabled(True)
-        self.test_connection_btn.setEnabled(False)
-        self.select_transcript_btn.setEnabled(False)
-        
-        # Log comprehensive analysis start information
-        self.ai_log("=== AI ANALYSIS SESSION STARTED ===", "SYSTEM")
-        self.ai_log(f"Model: {model_name}", "INFO")
-        self.ai_log(f"Segments to analyze: {len(self.current_segments)}", "INFO")
-        self.ai_log(f"Total words to analyze: {sum(seg.word_count for seg in self.current_segments):,}", "INFO")
-        self.ai_log(f"Case facts length: {len(case_facts)} characters", "DEBUG")
-        self.ai_log(f"Case facts preview: {case_facts[:200]}{'...' if len(case_facts) > 200 else ''}", "DEBUG")
-        
-        # Log save options
-        save_individual = self.save_individual_checkbox.isChecked()
-        save_combined = self.save_combined_checkbox.isChecked()
-        self.ai_log(f"Save individual files: {save_individual}", "DEBUG")
-        self.ai_log(f"Save combined summary: {save_combined}", "DEBUG")
-        
-        # Start worker thread
-        self.ai_worker_thread = AIReviewWorker(
-            ai_manager=self.ai_review_manager,
-            segments=self.current_segments,
-            case_facts=case_facts,
-            model_name=model_name,
-            log_callback=self.ai_log_callback
-        )
-        
-        self.ai_worker_thread.progress_update.connect(self.ai_log_callback)
-        self.ai_worker_thread.segment_complete.connect(self.on_segment_complete)
-        self.ai_worker_thread.finished.connect(self.on_ai_analysis_finished)
-        self.ai_worker_thread.start()
+        try:
+            # Validate AI Review Manager
+            if not self.ai_review_manager:
+                QMessageBox.critical(self, "Error", "AI Review Manager not initialized.")
+                return
+                
+            case_facts = self.case_facts_text.toPlainText().strip()
+            if not case_facts:
+                QMessageBox.warning(self, "Warning", "Please enter case facts to analyze.")
+                return
+
+            if not hasattr(self, 'current_segments') or not self.current_segments:
+                QMessageBox.warning(self, "Warning", "Please select and load a transcript file.")
+                return
+                
+            # Validate that segments are actually TranscriptSegment objects
+            if not all(hasattr(seg, 'filename') and hasattr(seg, 'content') for seg in self.current_segments):
+                QMessageBox.critical(self, "Error", "Invalid transcript segments loaded.")
+                return
+
+            # Get selected model
+            model_name = self.ai_model_combo.currentData() or "mistral"
+            if not model_name:
+                QMessageBox.warning(self, "Warning", "Please select an AI model.")
+                return
+            
+            # Clear previous results
+            self.clear_ai_results()
+            
+            # Reset progress
+            self.ai_progress.setValue(0)
+            self.ai_progress_label.setText("Starting AI analysis...")
+            
+            # Update UI state
+            self.analyze_btn.setEnabled(False)
+            self.stop_ai_btn.setEnabled(True)
+            self.test_connection_btn.setEnabled(False)
+            self.select_transcript_btn.setEnabled(False)
+            
+            # Log comprehensive analysis start information
+            self.ai_log("=== AI ANALYSIS SESSION STARTED ===", "SYSTEM")
+            self.ai_log(f"Model: {model_name}", "INFO")
+            self.ai_log(f"Segments to analyze: {len(self.current_segments)}", "INFO")
+            self.ai_log(f"Total words to analyze: {sum(seg.word_count for seg in self.current_segments):,}", "INFO")
+            self.ai_log(f"Case facts length: {len(case_facts)} characters", "DEBUG")
+            self.ai_log(f"Case facts preview: {case_facts[:200]}{'...' if len(case_facts) > 200 else ''}", "DEBUG")
+            
+            # Log save options
+            save_individual = self.save_individual_checkbox.isChecked()
+            save_combined = self.save_combined_checkbox.isChecked()
+            self.ai_log(f"Save individual files: {save_individual}", "DEBUG")
+            self.ai_log(f"Save combined summary: {save_combined}", "DEBUG")
+            
+            # Start worker thread
+            self.ai_worker_thread = AIReviewWorker(
+                ai_manager=self.ai_review_manager,
+                segments=self.current_segments,
+                case_facts=case_facts,
+                model_name=model_name,
+                log_callback=self.ai_log_callback
+            )
+            
+            self.ai_worker_thread.progress_update.connect(self.ai_log_callback)
+            self.ai_worker_thread.segment_complete.connect(self.on_segment_complete)
+            self.ai_worker_thread.finished.connect(self.on_ai_analysis_finished)
+            self.ai_worker_thread.start()
+            
+        except Exception as e:
+            self.ai_log(f"Error starting AI analysis: {str(e)}", "ERROR")
+            import traceback
+            self.ai_log(f"Full traceback: {traceback.format_exc()}", "DEBUG")
+            QMessageBox.critical(self, "Error", f"Failed to start AI analysis: {str(e)}")
+            
+            # Reset UI state on error
+            self.analyze_btn.setEnabled(True)
+            self.stop_ai_btn.setEnabled(False)
+            self.test_connection_btn.setEnabled(True)
+            self.select_transcript_btn.setEnabled(True)
     
     def ai_log_callback(self, message, level="INFO"):
         """Enhanced callback for AI analysis logging with level detection."""
