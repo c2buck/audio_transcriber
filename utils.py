@@ -1,6 +1,8 @@
 import os
 import re
 import time
+import json
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -47,6 +49,84 @@ def get_audio_files(directory: str) -> List[str]:
         print(f"Error scanning directory: {e}")
     
     return sorted(audio_files)
+
+
+def create_json_transcript(transcription_results: List[Dict[str, Any]], output_dir: str, 
+                          total_time: float, success_count: int, failure_count: int, 
+                          model_info: Dict[str, Any]) -> str:
+    """Create a structured JSON transcript file optimized for AI model review."""
+    
+    # Prepare summary information
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Extract model and device information
+    model_name = model_info.get('model_name', 'unknown')
+    backend_name = model_info.get('backend_display_name', 'unknown')
+    device_name = model_info.get('device_name', 'unknown')
+    
+    # Create a unified model description
+    model_description = f"{backend_name} {model_name}"
+    device_description = device_name
+    
+    # Build the JSON structure
+    json_data = {
+        "transcription_summary": {
+            "generated": current_time,
+            "model": model_description,
+            "device": device_description,
+            "total_files": success_count + failure_count,
+            "successful_files": success_count,
+            "failed_files": failure_count,
+            "total_processing_time_seconds": round(total_time, 2)
+        },
+        "recordings": []
+    }
+    
+    # Process each successful transcription
+    for result in transcription_results:
+        if not result.get('success', False):
+            continue  # Skip failed transcriptions
+        
+        # Extract filename without path
+        filename = Path(result['file_path']).name
+        
+        # Prepare segments data
+        segments = []
+        raw_segments = result.get('segments', [])
+        
+        for segment in raw_segments:
+            # Extract text and clean it up
+            text = segment.get('text', '').strip()
+            if not text:
+                continue
+                
+            segments.append({
+                "start": round(segment.get('start', 0.0), 1),
+                "end": round(segment.get('end', 0.0), 1), 
+                "text": text
+            })
+        
+        # Create recording entry
+        recording_data = {
+            "filename": filename,
+            "duration_seconds": round(result.get('duration', 0.0), 1),
+            "language": result.get('language', 'unknown'),
+            "processing_time_seconds": round(result.get('processing_time', 0.0), 1),
+            "words_count": result.get('words_count', 0),
+            "segments": segments
+        }
+        
+        json_data["recordings"].append(recording_data)
+    
+    # Save the JSON file
+    json_path = os.path.join(output_dir, "combined_transcript.json")
+    try:
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(json_data, f, indent=2, ensure_ascii=False)
+        return json_path
+    except Exception as e:
+        print(f"Error creating JSON transcript: {e}")
+        return None
 
 
 def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str, 
@@ -260,7 +340,7 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             if (navigator.platform.indexOf('Win') !== -1) {{
                 // This will work in some browsers/contexts
                 try {{
-                    const explorerPath = 'file:///' + filePath.replace(/\//g, '\\\\');
+                    const explorerPath = 'file:///' + filePath.replace(/\\//g, '\\\\\\\\');
                     window.open(explorerPath, '_blank');
                 }} catch(e) {{
                     console.log('Could not open in explorer:', e);
@@ -318,8 +398,8 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
     for idx, item in enumerate(transcriptions):
         status_class = "success" if item['success'] else "error"
         audio_file_uri = Path(item['file_path']).as_uri()
-        audio_file_path = str(Path(item['file_path'])).replace('\\', '/')
-        folder_path = str(Path(item['file_path']).parent).replace('\\', '/')
+        audio_file_path = str(Path(item['file_path'])).replace('\\\\', '/')
+        folder_path = str(Path(item['file_path']).parent).replace('\\\\', '/')
         
         html_content += f"""
         <div class="transcription {status_class}">

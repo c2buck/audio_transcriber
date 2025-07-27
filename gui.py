@@ -17,7 +17,7 @@ from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor
 
 from transcriber import AudioTranscriber
 from backend_manager import BackendManager
-from utils import get_audio_files, create_html_report, format_time
+from utils import get_audio_files, create_html_report, create_json_transcript, format_time
 from ai_review import AIReviewManager, TranscriptSegment
 
 
@@ -1213,6 +1213,20 @@ Transcription Summary:
                 self.log(f"HTML report created: {html_path}", "SUCCESS")
             else:
                 self.log("Failed to create HTML report", "WARNING")
+            
+            # Create JSON transcript for AI review
+            if hasattr(self, 'transcriber') and self.transcriber:
+                model_info = self.transcriber.get_backend_info()
+                json_path = create_json_transcript(
+                    result['results'], output_folder, result['total_time'],
+                    success_count, failure_count, model_info
+                )
+                
+                if json_path:
+                    self.log(f"JSON transcript created: {json_path}", "SUCCESS")
+                    self.log("JSON file is ready for AI review processing", "INFO")
+                else:
+                    self.log("Failed to create JSON transcript", "WARNING")
         else:
             error_msg = result.get('error', 'Unknown error')
             self.log("=== TRANSCRIPTION SESSION FAILED ===", "SYSTEM")
