@@ -22,6 +22,7 @@ Key benefits:
 - **Contextual Analysis**: AI considers case-specific facts and requirements
 - **Timestamp Navigation**: Direct links to specific moments in recordings
 - **Comprehensive Reporting**: Generates detailed analysis reports
+- **JSON Support**: Enhanced processing for JSON-formatted transcripts
 
 ## Setup Requirements
 
@@ -32,7 +33,7 @@ Key benefits:
 
 2. **Download AI Model**
    - Start Ollama service (usually automatic after installation)
-   - Download a compatible model: `ollama pull llama2` (or other models)
+   - Download a compatible model: `ollama pull llama2` (or other models like mistral, codellama, etc.)
    - Verify installation: `ollama list`
 
 3. **System Requirements**
@@ -52,15 +53,23 @@ Key benefits:
 - Identifies content relevant to investigations
 - Understands context across multiple recordings
 
+### Enhanced JSON Support
+- Automatic detection and optimization for JSON transcripts
+- Improved timestamp accuracy with JSON structured data
+- Better segment boundary detection
+- Enhanced metadata processing
+
 ### Segment-by-Segment Review
 - Detailed analysis of individual transcript segments
 - Maintains context between segments
 - Processes each recording independently
+- Optimized handling of timestamped segments
 
 ### Flexible Models
 - Compatible with various Ollama models
 - Adapts to different language models and capabilities
 - Allows selection based on performance needs
+- Automatic model downloading if not already installed
 
 ### Progress Tracking
 - Real-time progress updates during analysis
@@ -71,20 +80,21 @@ Key benefits:
 
 1. **Complete Transcription**
    - First transcribe your audio files using the main transcription feature
-   - Ensure you have a combined transcript file
+   - Ensure you have a combined transcript file (text or JSON format)
 
 2. **Switch to AI Review Tab**
    - Navigate to the "🤖 AI Review" tab in the application
 
 3. **Load Transcript**
    - Click "Browse" to select the combined transcript file
-   - The app will parse segments for analysis
+   - The app will automatically detect file format (text or JSON)
+   - The system parses segments for analysis
    - View segment information in the interface
 
 4. **Configure Analysis**
    - Enter case facts or specific analysis requirements in the text area
    - Select your preferred AI model from the dropdown
-   - Adjust any additional settings if available
+   - The system will automatically download models if not already installed
 
 5. **Start Review**
    - Click "Start AI Review" to begin analysis
@@ -115,6 +125,7 @@ The AI review feature has been specially enhanced for crime investigation scenar
 - **Precise Timing**: Each relevant section includes estimated timestamps
 - **Direct Audio Links**: Click-able links that jump directly to specific moments in recordings
 - **Time Ranges**: Clear start and end times for each relevant section
+- **Enhanced Accuracy**: JSON transcripts provide higher timestamp precision
 
 ### Crime Investigation Report
 - **Dedicated HTML Report**: Automatically generates a crime-focused investigation report
@@ -143,6 +154,12 @@ When running AI analysis, three types of reports are generated:
 - Check that the Ollama service is accessible at `http://localhost:11434`
 - Verify you have downloaded at least one AI model (`ollama list`)
 - Check firewall settings if connection issues persist
+
+**"Model not found"**
+- The system will attempt to download missing models automatically
+- If download fails, manually run: `ollama pull model_name`
+- Verify your internet connection
+- Check that you have sufficient disk space
 
 **Slow Analysis Performance**
 - Try using a smaller/faster AI model
@@ -179,6 +196,7 @@ The AI Review system consists of several key components:
 - **TranscriptSegment**: Represents a single recording segment
 - **CrimeRelevantSection**: Represents a section relevant to investigation
 - **OllamaClient**: Handles communication with local Ollama models
+- **AIReviewWorker**: Manages threading for non-blocking UI operation
 
 ### JSON Support
 
@@ -188,6 +206,7 @@ The system provides enhanced support for JSON-formatted transcripts:
 - Improved timestamp accuracy
 - Better segment boundary detection
 - Enhanced metadata processing
+- Optimized prompt construction for JSON data
 
 ### Prompt Engineering
 
@@ -197,6 +216,7 @@ The system uses carefully crafted prompts to guide the AI analysis:
 - Case-specific guidance
 - Structured response formats
 - Timestamp extraction guidance
+- JSON-optimized instructions when applicable
 
 ### Threading Model
 
@@ -206,6 +226,7 @@ Analysis runs in a separate thread to keep the UI responsive:
 - Real-time progress updates
 - Cancellation support
 - Detailed logging
+- Segment-by-segment completion tracking
 
 ### Report Generation
 
@@ -216,6 +237,7 @@ The system generates comprehensive reports with:
 - Timestamp navigation
 - Content highlighting
 - Executive summaries
+- Enhanced formatting for JSON-derived content
 
 ---
 
