@@ -1593,7 +1593,7 @@ Transcription Summary:
             self, 
             "Select Transcript File", 
             self.settings.value("ai_transcript_folder", ""),
-            "Text files (*.txt);;All files (*.*)"
+            "Text files (*.txt);;JSON files (*.json);;All files (*.*)"
         )
         
         if file_path:
@@ -1647,8 +1647,18 @@ Transcription Summary:
                 if 'read_time' in result:
                     self.ai_log(f"File read time: {result['read_time']:.3f}s", "DEBUG")
                 
-                # Segment the transcript
-                segments = self.ai_review_manager.segment_transcript(result['content'], log_callback)
+                # Extract JSON metadata for enhanced segmentation
+                json_metadata = None
+                if result.get('is_json', False):
+                    json_metadata = {
+                        'is_json': result['is_json'],
+                        'original_json': result.get('original_json'),
+                        'json_structure': result.get('json_structure')
+                    }
+                    self.ai_log(f"JSON file detected: {result.get('json_structure', {}).get('estimated_segments', 0)} estimated segments", "INFO")
+                
+                # Segment the transcript with JSON metadata
+                segments = self.ai_review_manager.segment_transcript(result['content'], log_callback, json_metadata)
                 self.current_segments = segments
                 
                 # Update UI with segment info

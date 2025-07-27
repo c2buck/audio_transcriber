@@ -16,30 +16,39 @@ class OllamaClient:
         Args:
             base_url: Base URL for Ollama API (default: http://localhost:11434)
         """
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip('/') if base_url else "http://localhost:11434"
         self.api_url = f"{self.base_url}/api"
         self._log_request_details = True  # Enable detailed request logging
         
     def _log_debug(self, message: str, callback: Optional[Callable] = None):
         """Log debug message with timestamp."""
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        log_msg = f"[{timestamp}] DEBUG: {message}"
-        if callback:
-            callback(log_msg)
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            log_msg = f"[{timestamp}] DEBUG: {message}"
+            if callback:
+                callback(log_msg)
+        except Exception:
+            pass  # Silently handle logging errors
         
     def _log_error(self, message: str, callback: Optional[Callable] = None):
         """Log error message with timestamp."""
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        log_msg = f"[{timestamp}] ERROR: {message}"
-        if callback:
-            callback(log_msg)
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            log_msg = f"[{timestamp}] ERROR: {message}"
+            if callback:
+                callback(log_msg)
+        except Exception:
+            pass  # Silently handle logging errors
             
     def _log_info(self, message: str, callback: Optional[Callable] = None):
         """Log info message with timestamp."""
-        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        log_msg = f"[{timestamp}] INFO: {message}"
-        if callback:
-            callback(log_msg)
+        try:
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            log_msg = f"[{timestamp}] INFO: {message}"
+            if callback:
+                callback(log_msg)
+        except Exception:
+            pass  # Silently handle logging errors
         
     def test_connection(self, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """
@@ -227,22 +236,32 @@ class OllamaClient:
         Returns:
             True if model is available, False otherwise
         """
-        self._log_debug(f"Checking availability of model: {model_name}", progress_callback)
-        
-        models_info = self.get_available_models(progress_callback)
-        if models_info['success']:
-            available_models = [m['name'] for m in models_info['models']]
-            is_available = model_name in available_models
-            
-            if is_available:
-                self._log_info(f"✓ Model '{model_name}' is available", progress_callback)
-            else:
-                self._log_info(f"✗ Model '{model_name}' not found in available models", progress_callback)
-                self._log_debug(f"Available models: {', '.join(available_models)}", progress_callback)
+        try:
+            if not model_name or not isinstance(model_name, str):
+                self._log_error("Invalid model name provided", progress_callback)
+                return False
                 
-            return is_available
-        else:
-            self._log_error(f"Could not check model availability: {models_info.get('error', 'Unknown error')}", progress_callback)
+            self._log_debug(f"Checking availability of model: {model_name}", progress_callback)
+            
+            models_info = self.get_available_models(progress_callback)
+            if models_info and models_info.get('success'):
+                available_models = [m.get('name', '') for m in models_info.get('models', []) if isinstance(m, dict)]
+                is_available = model_name in available_models
+                
+                if is_available:
+                    self._log_info(f"✓ Model '{model_name}' is available", progress_callback)
+                else:
+                    self._log_info(f"✗ Model '{model_name}' not found in available models", progress_callback)
+                    self._log_debug(f"Available models: {', '.join(available_models)}", progress_callback)
+                    
+                return is_available
+            else:
+                error_msg = models_info.get('error', 'Unknown error') if models_info else 'No response from server'
+                self._log_error(f"Could not check model availability: {error_msg}", progress_callback)
+                return False
+                
+        except Exception as e:
+            self._log_error(f"Error checking model availability: {str(e)}", progress_callback)
             return False
 
     def generate_response(self, model: str, prompt: str,
@@ -258,15 +277,37 @@ class OllamaClient:
         Returns:
             Dict with success status, response text, and detailed metrics
         """
-        self._log_info(f"Starting AI analysis with model: {model}", progress_callback)
-        self._log_debug(f"Prompt length: {len(prompt)} characters", progress_callback)
-        
-        if self._log_request_details and progress_callback:
-            # Log first and last 100 chars of prompt for debugging
-            prompt_preview = prompt[:100] + "..." + prompt[-100:] if len(prompt) > 200 else prompt
-            self._log_debug(f"Prompt preview: {prompt_preview}", progress_callback)
-
         try:
+            # Validate inputs
+            if not model or not isinstance(model, str):
+                error_msg = "Invalid model name provided"
+                self._log_error(error_msg, progress_callback)
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'response': ''
+                }
+                
+            if not prompt or not isinstance(prompt, str):
+                error_msg = "Invalid prompt provided"
+                self._log_error(error_msg, progress_callback)
+                return {
+                    'success': False,
+                    'error': error_msg,
+                    'response': ''
+                }
+            
+            self._log_info(f"Starting AI analysis with model: {model}", progress_callback)
+            self._log_debug(f"Prompt length: {len(prompt)} characters", progress_callback)
+            
+            if self._log_request_details and progress_callback:
+                # Log first and last 100 chars of prompt for debugging
+                try:
+                    prompt_preview = prompt[:100] + "..." + prompt[-100:] if len(prompt) > 200 else prompt
+                    self._log_debug(f"Prompt preview: {prompt_preview}", progress_callback)
+                except Exception:
+                    self._log_debug("Prompt preview unavailable", progress_callback)
+
             # Check if model is available
             self._log_debug(f"Verifying model '{model}' availability...", progress_callback)
             if not self.check_model_availability(model, progress_callback):
@@ -274,8 +315,8 @@ class OllamaClient:
 
                 # Try to pull the model if it's not available
                 pull_result = self._pull_model(model, progress_callback)
-                if not pull_result['success']:
-                    error_msg = f"Model '{model}' not available and failed to pull: {pull_result['error']}"
+                if not pull_result.get('success', False):
+                    error_msg = f"Model '{model}' not available and failed to pull: {pull_result.get('error', 'Unknown error')}"
                     self._log_error(error_msg, progress_callback)
                     return {
                         'success': False,
@@ -297,7 +338,13 @@ class OllamaClient:
                 }
             }
 
-            self._log_debug(f"Request payload prepared: {json.dumps({k: v if k != 'prompt' else f'<prompt:{len(v)} chars>' for k, v in payload.items()})}", progress_callback)
+            # Safe payload logging
+            try:
+                safe_payload = {k: v if k != 'prompt' else f'<prompt:{len(v)} chars>' for k, v in payload.items()}
+                self._log_debug(f"Request payload prepared: {json.dumps(safe_payload)}", progress_callback)
+            except Exception:
+                self._log_debug("Request payload prepared (logging failed)", progress_callback)
+                
             self._log_info("Sending request to AI model...", progress_callback)
 
             # Make the request
@@ -316,7 +363,7 @@ class OllamaClient:
                 if response.status_code == 200:
                     try:
                         data = response.json()
-                        ai_response = data.get('response', '').strip()
+                        ai_response = data.get('response', '').strip() if data.get('response') else ""
                         
                         # Log response metrics
                         response_length = len(ai_response)
@@ -326,17 +373,23 @@ class OllamaClient:
                         self._log_debug(f"Response length: {response_length} characters, {words_in_response} words", progress_callback)
                         self._log_debug(f"Processing time: {processing_time:.1f}s", progress_callback)
                         
-                        # Log additional response metadata
-                        if 'eval_count' in data:
-                            self._log_debug(f"Tokens generated: {data.get('eval_count', 'Unknown')}", progress_callback)
-                        if 'eval_duration' in data:
-                            eval_duration = data.get('eval_duration', 0) / 1e9  # Convert nanoseconds to seconds
-                            self._log_debug(f"Evaluation duration: {eval_duration:.2f}s", progress_callback)
+                        # Log additional response metadata safely
+                        try:
+                            if 'eval_count' in data:
+                                self._log_debug(f"Tokens generated: {data.get('eval_count', 'Unknown')}", progress_callback)
+                            if 'eval_duration' in data:
+                                eval_duration = data.get('eval_duration', 0) / 1e9 if data.get('eval_duration') else 0  # Convert nanoseconds to seconds
+                                self._log_debug(f"Evaluation duration: {eval_duration:.2f}s", progress_callback)
+                        except Exception:
+                            pass  # Skip metadata logging if it fails
                         
                         # Log first 200 chars of response for debugging
                         if ai_response and self._log_request_details:
-                            response_preview = ai_response[:200] + "..." if len(ai_response) > 200 else ai_response
-                            self._log_debug(f"Response preview: {response_preview}", progress_callback)
+                            try:
+                                response_preview = ai_response[:200] + "..." if len(ai_response) > 200 else ai_response
+                                self._log_debug(f"Response preview: {response_preview}", progress_callback)
+                            except Exception:
+                                pass
 
                         return {
                             'success': True,
@@ -353,19 +406,25 @@ class OllamaClient:
                     except json.JSONDecodeError as e:
                         error_msg = f"Invalid JSON in AI response: {str(e)}"
                         self._log_error(error_msg, progress_callback)
-                        self._log_debug(f"Raw response: {response.text[:500]}", progress_callback)
+                        try:
+                            self._log_debug(f"Raw response: {response.text[:500]}", progress_callback)
+                        except Exception:
+                            pass
                         return {
                             'success': False,
                             'error': error_msg,
                             'response': '',
                             'processing_time': processing_time,
-                            'raw_response_text': response.text
+                            'raw_response_text': getattr(response, 'text', 'No response text available')
                         }
                 else:
                     error_msg = f"AI request failed: HTTP {response.status_code}"
                     self._log_error(error_msg, progress_callback)
-                    self._log_debug(f"Response headers: {dict(response.headers)}", progress_callback)
-                    self._log_debug(f"Response body: {response.text[:500]}", progress_callback)
+                    try:
+                        self._log_debug(f"Response headers: {dict(response.headers)}", progress_callback)
+                        self._log_debug(f"Response body: {response.text[:500]}", progress_callback)
+                    except Exception:
+                        pass
 
                     return {
                         'success': False,
@@ -373,10 +432,11 @@ class OllamaClient:
                         'response': '',
                         'processing_time': processing_time,
                         'status_code': response.status_code,
-                        'response_text': response.text
+                        'response_text': getattr(response, 'text', 'No response text available')
                     }
                     
             except requests.exceptions.Timeout:
+                processing_time = time.time() - start_time
                 error_msg = f"Request timeout after {processing_time:.1f}s - AI model took too long to respond"
                 self._log_error(error_msg, progress_callback)
                 return {
@@ -420,11 +480,22 @@ class OllamaClient:
         Returns:
             Dict with success status and detailed pull information
         """
-        self._log_info(f"Pulling model '{model_name}' from Ollama registry...", progress_callback)
-        
         try:
+            if not model_name or not isinstance(model_name, str):
+                error_msg = "Invalid model name for pulling"
+                self._log_error(error_msg, progress_callback)
+                return {
+                    'success': False,
+                    'error': error_msg
+                }
+                
+            self._log_info(f"Pulling model '{model_name}' from Ollama registry...", progress_callback)
+            
             payload = {"name": model_name}
-            self._log_debug(f"Pull request payload: {json.dumps(payload)}", progress_callback)
+            try:
+                self._log_debug(f"Pull request payload: {json.dumps(payload)}", progress_callback)
+            except Exception:
+                self._log_debug("Pull request payload prepared (logging failed)", progress_callback)
             
             start_time = time.time()
             response = requests.post(
@@ -443,12 +514,18 @@ class OllamaClient:
                 }
             else:
                 error_msg = f"Failed to pull model: HTTP {response.status_code}"
-                self._log_error(f"{error_msg} - {response.text[:300]}", progress_callback)
+                try:
+                    self._log_error(f"{error_msg} - {response.text[:300]}", progress_callback)
+                    response_text = response.text
+                except Exception:
+                    self._log_error(error_msg, progress_callback)
+                    response_text = "Response text unavailable"
+                    
                 return {
                     'success': False,
                     'error': error_msg,
                     'status_code': response.status_code,
-                    'response_text': response.text,
+                    'response_text': response_text,
                     'pull_time': pull_time
                 }
 
