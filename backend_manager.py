@@ -217,7 +217,7 @@ class UnifiedTranscriber:
     """Unified interface for both OpenAI Whisper and faster-whisper backends."""
     
     def __init__(self, backend: str = "auto", model_name: str = "base", 
-                 device: Optional[str] = None, beam_size: int = 5):
+                 device: Optional[str] = None, beam_size: int = 5, batch_size: int = 8):
         """
         Initialize the unified transcriber.
         
@@ -226,9 +226,11 @@ class UnifiedTranscriber:
             model_name: Model size to use
             device: Device to use ("cuda", "cpu", "mps", or None for auto-detection)
             beam_size: Beam size for faster-whisper (ignored for OpenAI)
+            batch_size: Batch size for faster-whisper (ignored for OpenAI)
         """
         self.backend_manager = BackendManager()
         self.beam_size = beam_size
+        self.batch_size = batch_size
         self.device = self._get_device() if device is None else device
         
         # Resolve backend
@@ -343,14 +345,17 @@ class UnifiedTranscriber:
             compute_type = "int8"
         
         if progress_callback:
-            progress_callback(f"Using device: {device}, compute_type: {compute_type}")
+            progress_callback(f"Using device: {device}, compute_type: {compute_type}, batch_size: {self.batch_size}")
         
         # Try with requested device first, fallback to CPU if needed
         try:
             self.model = WhisperModel(
                 self.model_name,
                 device=device,
-                compute_type=compute_type
+                compute_type=compute_type,
+                # Apply batch_size parameter for faster-whisper
+                cpu_threads=min(4, os.cpu_count() or 1),  # Reasonable default for CPU threads
+                num_workers=1  # Default for workers
             )
         except Exception as gpu_error:
             if device == "cuda" and ("CUDA" in str(gpu_error) or "onnxruntime" in str(gpu_error).lower()):
@@ -362,7 +367,10 @@ class UnifiedTranscriber:
                 self.model = WhisperModel(
                     self.model_name,
                     device="cpu",
-                    compute_type="int8"
+                    compute_type="int8",
+                    # Apply batch_size parameter for faster-whisper
+                    cpu_threads=min(4, os.cpu_count() or 1),  # Reasonable default for CPU threads
+                    num_workers=1  # Default for workers
                 )
                 
                 if progress_callback:
@@ -547,7 +555,8 @@ class UnifiedTranscriber:
                 segments, info = self.model.transcribe(
                     temp_path,
                     beam_size=self.beam_size,
-                    word_timestamps=True
+                    word_timestamps=True,
+                    batch_size=self.batch_size  # Apply batch_size parameter
                 )
                 
                 # Clean up temporary file
@@ -563,14 +572,16 @@ class UnifiedTranscriber:
                 segments, info = self.model.transcribe(
                     audio_file,
                     beam_size=self.beam_size,
-                    word_timestamps=True
+                    word_timestamps=True,
+                    batch_size=self.batch_size  # Apply batch_size parameter
                 )
         else:
             # No exclusion time, transcribe the full audio
             segments, info = self.model.transcribe(
                 audio_file,
                 beam_size=self.beam_size,
-                word_timestamps=True
+                word_timestamps=True,
+                batch_size=self.batch_size  # Apply batch_size parameter
             )
         
         # Convert segments to list and build transcript
@@ -617,7 +628,8 @@ class UnifiedTranscriber:
             'realtime_factor': realtime_factor,
             'backend': self.backend_name,
             'model_name': self.model_name,
-            'beam_size': self.beam_size if self.backend_name == "faster" else None
+            'beam_size': self.beam_size if self.backend_name == "faster" else None,
+            'batch_size': self.batch_size if self.backend_name == "faster" else None
         }
     
     def transcribe_batch(self, input_directory: str, output_directory: str,
@@ -746,6 +758,8 @@ class UnifiedTranscriber:
                 f.write(f"Processing Time: {result.get('processing_time', 0):.1f} seconds\n")
                 if result.get('beam_size'):
                     f.write(f"Beam Size: {result.get('beam_size')}\n")
+                if result.get('batch_size'):
+                    f.write(f"Batch Size: {result.get('batch_size')}\n")
                 f.write("-" * 50 + "\n\n")
                 f.write(result['transcription'])
                 
@@ -764,6 +778,7 @@ class UnifiedTranscriber:
             'model_name': self.model_name,
             'device': self.device,
             'beam_size': self.beam_size if self.backend_name == "faster" else None,
+            'batch_size': self.batch_size if self.backend_name == "faster" else None,
             'model_loaded': self.is_model_loaded
         }
         

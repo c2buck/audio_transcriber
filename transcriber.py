@@ -14,7 +14,7 @@ class AudioTranscriber:
     """Core audio transcription class with support for multiple backends."""
     
     def __init__(self, model_name: str = "base", device: Optional[str] = None, 
-                 backend: str = "auto", beam_size: int = 5):
+                 backend: str = "auto", beam_size: int = 5, batch_size: int = 8):
         """
         Initialize the transcriber with a Whisper model.
         
@@ -23,11 +23,13 @@ class AudioTranscriber:
             device: Device to use ("cuda", "cpu", "mps", or None for auto-detection)
             backend: Backend to use ("auto", "openai", "faster")
             beam_size: Beam size for faster-whisper (ignored for OpenAI)
+            batch_size: Batch size for faster-whisper (ignored for OpenAI)
         """
         self.model_name = model_name
         self.device = self._get_device() if device is None else device
         self.backend = backend
         self.beam_size = beam_size
+        self.batch_size = batch_size
         self.backend_manager = BackendManager()
         self.unified_transcriber = None
         self.is_model_loaded = False
@@ -75,7 +77,8 @@ class AudioTranscriber:
                 backend=self.backend,
                 model_name=self.model_name,
                 device=self.device,
-                beam_size=self.beam_size
+                beam_size=self.beam_size,
+                batch_size=self.batch_size
             )
             
             # Log which backend was actually selected
@@ -86,6 +89,8 @@ class AudioTranscriber:
                 progress_callback(f"💻 Device: {backend_info.get('device_name', backend_info['device'])}")
                 if backend_info.get('beam_size'):
                     progress_callback(f"🔬 Beam size: {backend_info['beam_size']}")
+                if backend_info.get('batch_size'):
+                    progress_callback(f"📦 Batch size: {backend_info['batch_size']}")
             
             # Load the model
             success = self.unified_transcriber.load_model(progress_callback)
@@ -131,13 +136,15 @@ class AudioTranscriber:
                 return f"CPU ({os.cpu_count()} cores)"
     
     def transcribe_file(self, audio_file: str, 
-                       progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+                       progress_callback: Optional[Callable] = None,
+                       exclusion_time: int = 0) -> Dict[str, Any]:
         """
         Transcribe a single audio file using the selected backend.
         
         Args:
             audio_file: Path to the audio file
             progress_callback: Optional callback function for progress updates
+            exclusion_time: Number of seconds to exclude from the start of the recording
             
         Returns:
             Dict containing transcription results and metadata
@@ -152,12 +159,13 @@ class AudioTranscriber:
             }
         
         # Delegate to unified transcriber which handles all the detailed logging
-        return self.unified_transcriber.transcribe_file(audio_file, progress_callback)
+        return self.unified_transcriber.transcribe_file(audio_file, progress_callback, exclusion_time)
     
     def transcribe_batch(self, input_directory: str, output_directory: str,
                         progress_callback: Optional[Callable] = None,
                         file_progress_callback: Optional[Callable] = None,
-                        create_zip: bool = True) -> Dict[str, Any]:
+                        create_zip: bool = True,
+                        exclusion_time: int = 0) -> Dict[str, Any]:
         """
         Transcribe all audio files in a directory using the selected backend.
         
@@ -167,6 +175,7 @@ class AudioTranscriber:
             progress_callback: Callback for overall progress updates
             file_progress_callback: Callback for individual file progress (current, total)
             create_zip: Whether to create a zip file with results and audio files
+            exclusion_time: Number of seconds to exclude from the start of each recording
             
         Returns:
             Dict containing batch transcription results
@@ -186,7 +195,8 @@ class AudioTranscriber:
         
         # Delegate to unified transcriber which handles all the detailed processing
         result = self.unified_transcriber.transcribe_batch(
-            input_directory, output_directory, progress_callback, file_progress_callback
+            input_directory, output_directory, progress_callback, file_progress_callback, 
+            create_zip, exclusion_time
         )
         
         # Create a zip file with results and audio files if requested

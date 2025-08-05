@@ -1106,7 +1106,7 @@ class AudioTranscriberGUI(QMainWindow):
         else:
             # Auto-select the best available device
             try:
-                temp_transcriber = AudioTranscriber()
+                temp_transcriber = AudioTranscriber(batch_size=8)
                 auto_device = temp_transcriber._get_device()
                 for i in range(self.device_combo.count()):
                     if self.device_combo.itemData(i) == auto_device:
@@ -1126,7 +1126,7 @@ class AudioTranscriberGUI(QMainWindow):
         
         try:
             # Create a temporary transcriber to get device info
-            temp_transcriber = AudioTranscriber(device=selected_device)
+            temp_transcriber = AudioTranscriber(device=selected_device, batch_size=8)
             device_info = temp_transcriber.get_device_info()
             
             # Build device info text
@@ -1214,11 +1214,14 @@ class AudioTranscriberGUI(QMainWindow):
             backend_name = self.backend_combo.currentData()
             beam_size = int(self.beam_size_combo.currentText())
             
+            batch_size = 8  # Default batch size
+            
             self.transcriber = AudioTranscriber(
                 model_name=model_name,
                 device=selected_device,
                 backend=backend_name,
-                beam_size=beam_size
+                beam_size=beam_size,
+                batch_size=batch_size
             )
         
         # Reset progress
@@ -1232,6 +1235,7 @@ class AudioTranscriberGUI(QMainWindow):
         self.log(f"Processing device: {self.device_combo.currentText()}", "INFO")
         if self.backend_combo.currentData() == "faster":
             self.log(f"Beam size: {self.beam_size_combo.currentText()}", "INFO")
+            self.log(f"Batch size: 8", "INFO")  # Default batch size
         self.log(f"Excluding first {exclusion_time} seconds of each recording", "INFO")
         
         # Update UI state
