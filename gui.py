@@ -10,10 +10,10 @@ from PySide6.QtWidgets import (
     QGridLayout, QLabel, QPushButton, QFileDialog, QComboBox,
     QTextEdit, QProgressBar, QGroupBox, QFrame, QSplitter,
     QMessageBox, QStatusBar, QMenuBar, QMenu, QCheckBox,
-    QTabWidget, QScrollArea, QLineEdit
+    QTabWidget, QScrollArea
 )
-from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor, QIntValidator
 from PySide6.QtCore import QThread, Signal, QTimer, Qt, QSettings
+from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor
 
 from transcriber import AudioTranscriber
 from backend_manager import BackendManager
@@ -28,14 +28,12 @@ class TranscriptionWorker(QThread):
     file_progress = Signal(int, int)
     finished = Signal(dict)
     
-    def __init__(self, transcriber: AudioTranscriber, input_dir: str, output_dir: str, 
-                 create_zip: bool = True, exclusion_time: int = 0):
+    def __init__(self, transcriber: AudioTranscriber, input_dir: str, output_dir: str, create_zip: bool = True):
         super().__init__()
         self.transcriber = transcriber
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.create_zip = create_zip
-        self.exclusion_time = exclusion_time
         self.is_cancelled = False
     
     def run(self):
@@ -54,8 +52,7 @@ class TranscriptionWorker(QThread):
                 self.output_dir,
                 progress_callback,
                 file_progress_callback,
-                self.create_zip,
-                self.exclusion_time
+                self.create_zip
             )
             
             if not self.is_cancelled:
@@ -720,32 +717,6 @@ class AudioTranscriberGUI(QMainWindow):
         
         layout.addWidget(device_group)
         
-        # Audio Exclusion Group
-        exclusion_group = QGroupBox("Audio Exclusion")
-        exclusion_layout = QVBoxLayout(exclusion_group)
-        
-        # Exclusion time input
-        exclusion_time_layout = QHBoxLayout()
-        exclusion_time_layout.addWidget(QLabel("Exclude first:"))
-        
-        self.exclusion_time_input = QLineEdit("15")
-        self.exclusion_time_input.setValidator(QIntValidator(0, 3600))  # 0 to 3600 seconds (1 hour)
-        self.exclusion_time_input.setMaximumWidth(60)
-        exclusion_time_layout.addWidget(self.exclusion_time_input)
-        
-        exclusion_time_layout.addWidget(QLabel("seconds"))
-        exclusion_time_layout.addStretch()
-        
-        exclusion_layout.addLayout(exclusion_time_layout)
-        
-        # Exclusion description
-        exclusion_desc = QLabel("Excludes the specified number of seconds from the start of each recording.")
-        exclusion_desc.setStyleSheet("color: gray; font-size: 11px;")
-        exclusion_desc.setWordWrap(True)
-        exclusion_layout.addWidget(exclusion_desc)
-        
-        layout.addWidget(exclusion_group)
-        
         # Control Buttons
         control_layout = QHBoxLayout()
         
@@ -1106,7 +1077,7 @@ class AudioTranscriberGUI(QMainWindow):
         else:
             # Auto-select the best available device
             try:
-                temp_transcriber = AudioTranscriber(batch_size=8)
+                temp_transcriber = AudioTranscriber()
                 auto_device = temp_transcriber._get_device()
                 for i in range(self.device_combo.count()):
                     if self.device_combo.itemData(i) == auto_device:
@@ -1126,7 +1097,7 @@ class AudioTranscriberGUI(QMainWindow):
         
         try:
             # Create a temporary transcriber to get device info
-            temp_transcriber = AudioTranscriber(device=selected_device, batch_size=8)
+            temp_transcriber = AudioTranscriber(device=selected_device)
             device_info = temp_transcriber.get_device_info()
             
             # Build device info text
@@ -1198,15 +1169,6 @@ class AudioTranscriberGUI(QMainWindow):
             QMessageBox.warning(self, "Warning", "Please select an output folder.")
             return
         
-        # Get exclusion time
-        try:
-            exclusion_time = int(self.exclusion_time_input.text())
-            # Save exclusion time preference
-            self.settings.setValue("exclusion_time", str(exclusion_time))
-        except ValueError:
-            exclusion_time = 15  # Default to 15 seconds if invalid input
-            self.exclusion_time_input.setText("15")
-        
         # Create transcriber if needed
         if not self.transcriber:
             model_name = self.model_combo.currentText()
@@ -1214,14 +1176,11 @@ class AudioTranscriberGUI(QMainWindow):
             backend_name = self.backend_combo.currentData()
             beam_size = int(self.beam_size_combo.currentText())
             
-            batch_size = 8  # Default batch size
-            
             self.transcriber = AudioTranscriber(
                 model_name=model_name,
                 device=selected_device,
                 backend=backend_name,
-                beam_size=beam_size,
-                batch_size=batch_size
+                beam_size=beam_size
             )
         
         # Reset progress
@@ -1235,8 +1194,6 @@ class AudioTranscriberGUI(QMainWindow):
         self.log(f"Processing device: {self.device_combo.currentText()}", "INFO")
         if self.backend_combo.currentData() == "faster":
             self.log(f"Beam size: {self.beam_size_combo.currentText()}", "INFO")
-            self.log(f"Batch size: 8", "INFO")  # Default batch size
-        self.log(f"Excluding first {exclusion_time} seconds of each recording", "INFO")
         
         # Update UI state
         self.start_btn.setEnabled(False)
@@ -1247,10 +1204,9 @@ class AudioTranscriberGUI(QMainWindow):
         self.model_combo.setEnabled(False)
         self.beam_size_combo.setEnabled(False)
         self.device_combo.setEnabled(False)
-        self.exclusion_time_input.setEnabled(False)
         
         # Start worker thread
-        self.worker_thread = TranscriptionWorker(self.transcriber, input_folder, output_folder, create_zip=True, exclusion_time=exclusion_time)
+        self.worker_thread = TranscriptionWorker(self.transcriber, input_folder, output_folder, create_zip=True)
         self.worker_thread.progress_update.connect(self.log)
         self.worker_thread.file_progress.connect(self.update_file_progress)
         self.worker_thread.finished.connect(self.transcription_finished)
@@ -1279,7 +1235,6 @@ class AudioTranscriberGUI(QMainWindow):
         self.model_combo.setEnabled(True)
         self.beam_size_combo.setEnabled(True)
         self.device_combo.setEnabled(True)
-        self.exclusion_time_input.setEnabled(True)
         
         if result['success']:
             self.overall_progress.setValue(100)
@@ -1624,11 +1579,6 @@ Transcription Summary:
             if self.beam_size_combo.itemText(i) == preferred_beam_size:
                 self.beam_size_combo.setCurrentIndex(i)
                 break
-        
-        # Load exclusion time preference
-        exclusion_time = self.settings.value("exclusion_time", "15")
-        if hasattr(self, 'exclusion_time_input'):
-            self.exclusion_time_input.setText(exclusion_time)
         
         # Device preference will be loaded in populate_device_combo()
     
