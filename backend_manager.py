@@ -371,8 +371,19 @@ class UnifiedTranscriber:
                 raise gpu_error
     
     def transcribe_file(self, audio_file: str, 
-                       progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Transcribe a single audio file."""
+                       progress_callback: Optional[Callable] = None,
+                       exclusion_time: int = 0) -> Dict[str, Any]:
+        """
+        Transcribe a single audio file.
+        
+        Args:
+            audio_file: Path to the audio file
+            progress_callback: Optional callback function for progress updates
+            exclusion_time: Number of seconds to exclude from the start of the recording
+            
+        Returns:
+            Dict containing transcription results and metadata
+        """
         if not self.is_model_loaded:
             return {
                 'file_path': audio_file,
@@ -393,11 +404,20 @@ class UnifiedTranscriber:
             
             duration = get_file_duration(audio_file)
             
+            # Check if exclusion time is valid
+            if exclusion_time > 0:
+                if exclusion_time >= duration:
+                    if progress_callback:
+                        progress_callback(f"⚠️ Warning: Exclusion time ({exclusion_time}s) is greater than or equal to audio duration ({duration:.1f}s)")
+                else:
+                    if progress_callback:
+                        progress_callback(f"Excluding first {exclusion_time}s of audio")
+            
             # Transcribe using appropriate backend
             if self.backend_name == "openai":
-                result = self._transcribe_openai(audio_file, progress_callback)
+                result = self._transcribe_openai(audio_file, progress_callback, exclusion_time)
             elif self.backend_name == "faster":
-                result = self._transcribe_faster(audio_file, progress_callback)
+                result = self._transcribe_faster(audio_file, progress_callback, exclusion_time)
             else:
                 raise RuntimeError(f"Unknown backend: {self.backend_name}")
             
@@ -429,24 +449,129 @@ class UnifiedTranscriber:
                 'backend': self.backend_name
             }
     
-    def _transcribe_openai(self, audio_file: str, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Transcribe using OpenAI Whisper."""
+    def _transcribe_openai(self, audio_file: str, progress_callback: Optional[Callable] = None, exclusion_time: int = 0) -> Dict[str, Any]:
+        """
+        Transcribe using OpenAI Whisper.
+        
+        Args:
+            audio_file: Path to the audio file
+            progress_callback: Optional callback function for progress updates
+            exclusion_time: Number of seconds to exclude from the start of the recording
+            
+        Returns:
+            Dict containing transcription results
+        """
         if progress_callback:
             progress_callback("Starting OpenAI Whisper transcription...")
         
-        result = self.model.transcribe(audio_file)
-        return result
+        # Handle exclusion time
+        if exclusion_time > 0:
+            import ffmpeg
+            import tempfile
+            
+            try:
+                # Create a temporary file for the trimmed audio
+                with tempfile.NamedTemporaryFile(suffix=Path(audio_file).suffix, delete=False) as temp_file:
+                    temp_path = temp_file.name
+                
+                if progress_callback:
+                    progress_callback(f"Trimming audio to exclude first {exclusion_time}s...")
+                
+                # Use ffmpeg to trim the audio
+                (
+                    ffmpeg
+                    .input(audio_file, ss=exclusion_time)
+                    .output(temp_path)
+                    .run(quiet=True, overwrite_output=True)
+                )
+                
+                # Transcribe the trimmed audio
+                result = self.model.transcribe(temp_path)
+                
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+                    
+                return result
+                
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"Error trimming audio: {str(e)}. Proceeding with full audio.")
+                # Fall back to transcribing the full audio
+                result = self.model.transcribe(audio_file)
+                return result
+        else:
+            # No exclusion time, transcribe the full audio
+            result = self.model.transcribe(audio_file)
+            return result
     
-    def _transcribe_faster(self, audio_file: str, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
-        """Transcribe using faster-whisper."""
+    def _transcribe_faster(self, audio_file: str, progress_callback: Optional[Callable] = None, exclusion_time: int = 0) -> Dict[str, Any]:
+        """
+        Transcribe using faster-whisper.
+        
+        Args:
+            audio_file: Path to the audio file
+            progress_callback: Optional callback function for progress updates
+            exclusion_time: Number of seconds to exclude from the start of the recording
+            
+        Returns:
+            Dict containing transcription results
+        """
         if progress_callback:
             progress_callback(f"Starting faster-whisper transcription (beam_size: {self.beam_size})...")
         
-        segments, info = self.model.transcribe(
-            audio_file,
-            beam_size=self.beam_size,
-            word_timestamps=True
-        )
+        # Handle exclusion time
+        if exclusion_time > 0:
+            import ffmpeg
+            import tempfile
+            
+            try:
+                # Create a temporary file for the trimmed audio
+                with tempfile.NamedTemporaryFile(suffix=Path(audio_file).suffix, delete=False) as temp_file:
+                    temp_path = temp_file.name
+                
+                if progress_callback:
+                    progress_callback(f"Trimming audio to exclude first {exclusion_time}s...")
+                
+                # Use ffmpeg to trim the audio
+                (
+                    ffmpeg
+                    .input(audio_file, ss=exclusion_time)
+                    .output(temp_path)
+                    .run(quiet=True, overwrite_output=True)
+                )
+                
+                # Transcribe the trimmed audio
+                segments, info = self.model.transcribe(
+                    temp_path,
+                    beam_size=self.beam_size,
+                    word_timestamps=True
+                )
+                
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+                    
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"Error trimming audio: {str(e)}. Proceeding with full audio.")
+                # Fall back to transcribing the full audio
+                segments, info = self.model.transcribe(
+                    audio_file,
+                    beam_size=self.beam_size,
+                    word_timestamps=True
+                )
+        else:
+            # No exclusion time, transcribe the full audio
+            segments, info = self.model.transcribe(
+                audio_file,
+                beam_size=self.beam_size,
+                word_timestamps=True
+            )
         
         # Convert segments to list and build transcript
         segments_list = list(segments)
@@ -458,8 +583,8 @@ class UnifiedTranscriber:
             "segments": [
                 {
                     "id": i,
-                    "start": segment.start,
-                    "end": segment.end,
+                    "start": segment.start + (exclusion_time if exclusion_time > 0 else 0),  # Adjust timestamps
+                    "end": segment.end + (exclusion_time if exclusion_time > 0 else 0),      # Adjust timestamps
                     "text": segment.text.strip()
                 }
                 for i, segment in enumerate(segments_list)
@@ -497,7 +622,9 @@ class UnifiedTranscriber:
     
     def transcribe_batch(self, input_directory: str, output_directory: str,
                         progress_callback: Optional[Callable] = None,
-                        file_progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+                        file_progress_callback: Optional[Callable] = None,
+                        create_zip: bool = True,
+                        exclusion_time: int = 0) -> Dict[str, Any]:
         """Transcribe all audio files in a directory."""
         from utils import get_audio_files, safe_filename, create_html_report, create_json_transcript, create_chunked_json_transcript
         
@@ -545,7 +672,7 @@ class UnifiedTranscriber:
             if file_progress_callback:
                 file_progress_callback(i, len(audio_files))
             
-            result = self.transcribe_file(audio_file, progress_callback)
+            result = self.transcribe_file(audio_file, progress_callback, exclusion_time)
             results.append(result)
             
             if result['success']:
