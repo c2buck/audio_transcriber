@@ -28,11 +28,12 @@ class TranscriptionWorker(QThread):
     file_progress = Signal(int, int)
     finished = Signal(dict)
     
-    def __init__(self, transcriber: AudioTranscriber, input_dir: str, output_dir: str):
+    def __init__(self, transcriber: AudioTranscriber, input_dir: str, output_dir: str, create_zip: bool = True):
         super().__init__()
         self.transcriber = transcriber
         self.input_dir = input_dir
         self.output_dir = output_dir
+        self.create_zip = create_zip
         self.is_cancelled = False
     
     def run(self):
@@ -50,7 +51,8 @@ class TranscriptionWorker(QThread):
                 self.input_dir,
                 self.output_dir,
                 progress_callback,
-                file_progress_callback
+                file_progress_callback,
+                self.create_zip
             )
             
             if not self.is_cancelled:
@@ -63,7 +65,8 @@ class TranscriptionWorker(QThread):
                     'results': [],
                     'total_time': 0,
                     'success_count': 0,
-                    'failure_count': 0
+                    'failure_count': 0,
+                    'zip_path': None
                 })
     
     def cancel(self):
@@ -829,10 +832,21 @@ class AudioTranscriberGUI(QMainWindow):
         self.results_label = QLabel("No transcription completed yet.")
         results_layout.addWidget(self.results_label)
         
+        # Create a horizontal layout for buttons
+        buttons_layout = QHBoxLayout()
+        
         self.open_html_btn = QPushButton("Open HTML Report")
         self.open_html_btn.setEnabled(False)
         self.open_html_btn.clicked.connect(self.open_html_report)
-        results_layout.addWidget(self.open_html_btn)
+        buttons_layout.addWidget(self.open_html_btn)
+        
+        self.open_zip_btn = QPushButton("Open Results Package")
+        self.open_zip_btn.setEnabled(False)
+        self.open_zip_btn.clicked.connect(self.open_zip_file)
+        self.open_zip_btn.setToolTip("Open the zip file containing HTML report and audio files")
+        buttons_layout.addWidget(self.open_zip_btn)
+        
+        results_layout.addLayout(buttons_layout)
         
         layout.addWidget(results_group)
         
@@ -1192,7 +1206,7 @@ class AudioTranscriberGUI(QMainWindow):
         self.device_combo.setEnabled(False)
         
         # Start worker thread
-        self.worker_thread = TranscriptionWorker(self.transcriber, input_folder, output_folder)
+        self.worker_thread = TranscriptionWorker(self.transcriber, input_folder, output_folder, create_zip=True)
         self.worker_thread.progress_update.connect(self.log)
         self.worker_thread.file_progress.connect(self.update_file_progress)
         self.worker_thread.finished.connect(self.transcription_finished)
@@ -1279,6 +1293,13 @@ Transcription Summary:
                     self.log("JSON file is ready for AI review processing", "INFO")
                 else:
                     self.log("Failed to create JSON transcript", "WARNING")
+                
+                # Handle zip file if created
+                if 'zip_path' in result and result['zip_path']:
+                    self.zip_file_path = result['zip_path']
+                    self.open_zip_btn.setEnabled(True)
+                    self.log(f"Results package created: {Path(result['zip_path']).name}", "SUCCESS")
+                    self.log("Package contains HTML report and audio files for sharing", "INFO")
         else:
             error_msg = result.get('error', 'Unknown error')
             self.log("=== TRANSCRIPTION SESSION FAILED ===", "SYSTEM")
@@ -1305,6 +1326,28 @@ Transcription Summary:
         if hasattr(self, 'html_report_path') and self.html_report_path:
             import webbrowser
             webbrowser.open(f"file:///{self.html_report_path}")
+    
+    def open_zip_file(self):
+        """Open the zip file or its containing folder."""
+        if hasattr(self, 'zip_file_path') and self.zip_file_path:
+            import os
+            import platform
+            import subprocess
+            
+            try:
+                # Try to open the folder containing the zip file
+                zip_folder = os.path.dirname(self.zip_file_path)
+                
+                if platform.system() == "Windows":
+                    os.startfile(zip_folder)
+                elif platform.system() == "Darwin":  # macOS
+                    subprocess.call(["open", zip_folder])
+                else:  # Linux
+                    subprocess.call(["xdg-open", zip_folder])
+                    
+                self.log(f"Opened folder containing results package: {zip_folder}", "INFO")
+            except Exception as e:
+                self.log(f"Error opening results package: {str(e)}", "ERROR")
     
     def log(self, message: str, level: str = "INFO"):
         """Add a message to the log display with enhanced formatting."""

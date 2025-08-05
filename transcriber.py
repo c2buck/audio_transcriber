@@ -2,6 +2,8 @@ import os
 import time
 import torch
 import threading
+import zipfile
+import shutil
 from pathlib import Path
 from typing import List, Dict, Any, Callable, Optional
 from utils import get_audio_files, get_file_duration, safe_filename
@@ -154,7 +156,8 @@ class AudioTranscriber:
     
     def transcribe_batch(self, input_directory: str, output_directory: str,
                         progress_callback: Optional[Callable] = None,
-                        file_progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+                        file_progress_callback: Optional[Callable] = None,
+                        create_zip: bool = True) -> Dict[str, Any]:
         """
         Transcribe all audio files in a directory using the selected backend.
         
@@ -163,6 +166,7 @@ class AudioTranscriber:
             output_directory: Directory to save transcriptions
             progress_callback: Callback for overall progress updates
             file_progress_callback: Callback for individual file progress (current, total)
+            create_zip: Whether to create a zip file with results and audio files
             
         Returns:
             Dict containing batch transcription results
@@ -176,13 +180,29 @@ class AudioTranscriber:
                     'results': [],
                     'total_time': 0,
                     'success_count': 0,
-                    'failure_count': 0
+                    'failure_count': 0,
+                    'zip_path': None
                 }
         
         # Delegate to unified transcriber which handles all the detailed processing
-        return self.unified_transcriber.transcribe_batch(
+        result = self.unified_transcriber.transcribe_batch(
             input_directory, output_directory, progress_callback, file_progress_callback
         )
+        
+        # Create a zip file with results and audio files if requested
+        zip_path = None
+        if create_zip and result.get('success', False):
+            if progress_callback:
+                progress_callback("Creating results package...")
+            
+            zip_path = self.create_results_zip(
+                input_directory, output_directory, progress_callback
+            )
+            
+            if zip_path:
+                result['zip_path'] = zip_path
+        
+        return result
     
     def get_available_models(self) -> List[str]:
         """Get list of available models for current backend."""
@@ -254,3 +274,146 @@ class AudioTranscriber:
         """Get available models for a specific backend."""
         backend_info = self.backend_manager.get_backend_info(backend_name)
         return backend_info.models if backend_info else []
+        
+    def create_results_zip(self, input_directory: str, output_directory: str, 
+                          progress_callback: Optional[Callable] = None) -> str:
+        """
+        Create a zip file containing the HTML report and audio files.
+        
+        Args:
+            input_directory: Directory containing audio files
+            output_directory: Directory containing transcription results
+            progress_callback: Optional callback function for progress updates
+            
+        Returns:
+            Path to the created zip file
+        """
+        if progress_callback:
+            progress_callback("Creating results zip archive...")
+            
+        # Create a temporary directory for the zip contents
+        temp_dir = Path(output_directory) / "temp_zip_contents"
+        temp_dir.mkdir(exist_ok=True)
+        
+        try:
+            # Copy HTML report to temp directory
+            html_report = Path(output_directory) / "transcription_report.html"
+            if html_report.exists():
+                shutil.copy2(html_report, temp_dir)
+                
+                if progress_callback:
+                    progress_callback("Copied HTML report to zip archive")
+            else:
+                if progress_callback:
+                    progress_callback("Warning: HTML report not found")
+            
+            # Copy audio files to temp directory
+            audio_files = get_audio_files(input_directory)
+            audio_dir = temp_dir / "audio"
+            audio_dir.mkdir(exist_ok=True)
+            
+            for i, audio_file in enumerate(audio_files, 1):
+                file_name = Path(audio_file).name
+                shutil.copy2(audio_file, audio_dir / file_name)
+                
+                if progress_callback and i % 5 == 0:  # Update every 5 files
+                    progress_callback(f"Copying audio files: {i}/{len(audio_files)}")
+            
+            if progress_callback:
+                progress_callback(f"Copied {len(audio_files)} audio files to zip archive")
+            
+            # Update HTML file to use relative paths for audio files
+            if html_report.exists():
+                self._update_html_paths(temp_dir / html_report.name, "audio")
+                
+                if progress_callback:
+                    progress_callback("Updated audio file paths in HTML report")
+            
+            # Create zip file
+            zip_path = Path(output_directory) / "transcription_results.zip"
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for file in temp_dir.rglob('*'):
+                    if file.is_file():
+                        zipf.write(
+                            file, 
+                            file.relative_to(temp_dir)
+                        )
+            
+            if progress_callback:
+                progress_callback(f"✅ Created zip archive: {zip_path}")
+            
+            # Clean up temporary directory
+            shutil.rmtree(temp_dir)
+            
+            return str(zip_path)
+            
+        except Exception as e:
+            if progress_callback:
+                progress_callback(f"❌ Error creating zip archive: {str(e)}")
+            
+            # Clean up temporary directory if it exists
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+                
+            return ""
+    
+    def _update_html_paths(self, html_file: Path, audio_dir_name: str) -> None:
+        """
+        Update audio file paths in HTML report to use relative paths.
+        
+        Args:
+            html_file: Path to the HTML file
+            audio_dir_name: Name of the audio directory in the zip
+        """
+        try:
+            with open(html_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            import re
+            
+            # First, modify the href links for "Play Audio" buttons
+            # Find href="file:///path/to/file.mp3" and replace with href="audio/file.mp3"
+            content = re.sub(
+                r'href="file:///[^"]*?([^/\\]+?)(?:")',
+                f'href="{audio_dir_name}/\\1"',
+                content
+            )
+            
+            # Next, modify the onclick handlers for "Open Location" buttons
+            # Find onclick="openFileLocation('path/to/file.mp3')" and replace with onclick="openFileLocation('audio/file.mp3')"
+            content = re.sub(
+                r'onclick="openFileLocation\(\'[^\']*?([^/\\]+?)(?:\'\))',
+                f'onclick="openFileLocation(\'{audio_dir_name}/\\1\')',
+                content
+            )
+            
+            # Update JavaScript to handle relative paths
+            old_js = """function openFileLocation(filePath) {
+            // Try to open the file directly (may auto-play depending on system settings)
+            window.open(filePath, '_blank');
+            
+            // For Windows, we can try to open in explorer
+            if (navigator.platform.indexOf('Win') !== -1) {
+                // This will work in some browsers/contexts
+                try {
+                    const explorerPath = 'file:///' + filePath.replace(/\\//g, '\\\\\\\\');
+                    window.open(explorerPath, '_blank');
+                } catch(e) {
+                    console.log('Could not open in explorer:', e);
+                }
+            }
+        }"""
+            
+            new_js = """function openFileLocation(filePath) {
+            // For relative paths in the zip archive
+            window.open(filePath, '_blank');
+        }"""
+            
+            content = content.replace(old_js, new_js)
+            
+            with open(html_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+                
+        except Exception as e:
+            print(f"Error updating HTML paths: {e}")
+            # Continue even if path updating fails
