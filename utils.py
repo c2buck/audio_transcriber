@@ -60,8 +60,51 @@ def get_audio_files(directory: str, sort_by_date: bool = True, debug_log: bool =
         print(f"Error scanning directory: {e}")
     
     if sort_by_date:
-        # Define common date patterns to extract from filenames
-        date_patterns = [
+        # Define common date and time patterns to extract from filenames
+        # Priority is given to patterns that include both date and time
+        date_time_patterns = [
+            # Date and time patterns with 12-hour format (highest priority)
+            # YYYY-MM-DD hh:mm:ss AM/PM
+            r'(\d{4}[-_]\d{2}[-_]\d{2}[-_ T]\d{1,2}[-_:]\d{2}[-_:]\d{2}\s*[AaPp][Mm])',
+            # YYYY-MM-DD hh:mm AM/PM
+            r'(\d{4}[-_]\d{2}[-_]\d{2}[-_ T]\d{1,2}[-_:]\d{2}\s*[AaPp][Mm])',
+            # DD-MM-YYYY hh:mm:ss AM/PM
+            r'(\d{2}[-_]\d{2}[-_]\d{4}[-_ T]\d{1,2}[-_:]\d{2}[-_:]\d{2}\s*[AaPp][Mm])',
+            # DD-MM-YYYY hh:mm AM/PM
+            r'(\d{2}[-_]\d{2}[-_]\d{4}[-_ T]\d{1,2}[-_:]\d{2}\s*[AaPp][Mm])',
+            
+            # Date and time patterns with 24-hour format (high priority)
+            # YYYY-MM-DD HH:MM:SS or YYYY_MM_DD_HH_MM_SS
+            r'(\d{4}[-_]\d{2}[-_]\d{2}[-_ T]\d{2}[-_:]\d{2}[-_:]\d{2})',
+            # YYYY-MM-DD HH:MM or YYYY_MM_DD_HH_MM
+            r'(\d{4}[-_]\d{2}[-_]\d{2}[-_ T]\d{2}[-_:]\d{2})',
+            # DD-MM-YYYY HH:MM:SS or DD_MM_YYYY_HH_MM_SS
+            r'(\d{2}[-_]\d{2}[-_]\d{4}[-_ T]\d{2}[-_:]\d{2}[-_:]\d{2})',
+            # DD-MM-YYYY HH:MM or DD_MM_YYYY_HH_MM
+            r'(\d{2}[-_]\d{2}[-_]\d{4}[-_ T]\d{2}[-_:]\d{2})',
+            
+            # Compact formats with date and time
+            # YYYYMMDD_HHMMSS or YYYYMMDD-HHMMSS
+            r'(\d{8}[-_]\d{6})',
+            # YYYYMMDD_HHMM or YYYYMMDD-HHMM
+            r'(\d{8}[-_]\d{4})',
+            # DDMMYYYY_HHMMSS or DDMMYYYY-HHMMSS
+            r'(\d{8}[-_]\d{6})',
+            # DDMMYYYY_HHMM or DDMMYYYY-HHMM
+            r'(\d{8}[-_]\d{4})',
+            
+            # Standalone time patterns (12-hour format)
+            r'[-_](\d{1,2}[-_:]\d{2}[-_:]\d{2}\s*[AaPp][Mm])[-_]',  # hh:mm:ss AM/PM
+            r'[-_](\d{1,2}[-_:]\d{2}\s*[AaPp][Mm])[-_]',  # hh:mm AM/PM
+            r'[-_](\d{1,2}[AaPp][Mm])[-_]',  # hh AM/PM (simple format)
+            
+            # Standalone time patterns (24-hour format)
+            r'[-_](\d{2}[-_:]\d{2}[-_:]\d{2})[-_]',  # HH:MM:SS
+            r'[-_](\d{2}[-_:]\d{2})[-_]',  # HH:MM
+            r'[-_](\d{6})[-_]',  # HHMMSS
+            r'[-_](\d{4})[-_]',  # HHMM
+            
+            # Date only patterns (lower priority)
             # YYYY-MM-DD or YYYY_MM_DD
             r'(\d{4}[-_]\d{2}[-_]\d{2})',
             # DD-MM-YYYY or DD_MM_YYYY
@@ -75,8 +118,6 @@ def get_audio_files(directory: str, sort_by_date: bool = True, debug_log: bool =
             # Month names: 01Jan2023, Jan01_2023, etc.
             r'(\d{2}[A-Za-z]{3}\d{4})',
             r'([A-Za-z]{3}\d{2}[-_]\d{4})',
-            # Dates with time: YYYY-MM-DD_HH-MM, etc.
-            r'(\d{4}[-_]\d{2}[-_]\d{2}[-_T]\d{2}[-_:]\d{2})',
         ]
         
         # Dictionary to store extracted dates for debugging
@@ -86,21 +127,335 @@ def get_audio_files(directory: str, sort_by_date: bool = True, debug_log: bool =
             filename = Path(filepath).name
             original_date = None
             pattern_used = None
+            extracted_time = False
             
             # Try all patterns until we find a match
-            for pattern in date_patterns:
+            for pattern in date_time_patterns:
                 match = re.search(pattern, filename)
                 if match:
                     date_str = match.group(1)
                     pattern_used = pattern
                     
-                    # Try different date formats based on the pattern matched
+                    # Try different date/time formats based on the pattern matched
                     try:
-                        if re.match(r'\d{4}[-_]\d{2}[-_]\d{2}', date_str):
+                        # 12-hour time formats with AM/PM (highest priority)
+                        if re.search(r'[AaPp][Mm]', date_str):
+                            time_format = "12-hour"
+                            # Extract AM/PM indicator and clean up the string
+                            am_pm = re.search(r'([AaPp][Mm])', date_str).group(1).upper()
+                            
+                            # YYYY-MM-DD hh:mm:ss AM/PM
+                            if re.match(r'\d{4}[-_]\d{2}[-_]\d{2}[-_ T]\d{1,2}[-_:]\d{2}[-_:]\d{2}\s*[AaPp][Mm]', date_str):
+                                # Remove AM/PM for parsing
+                                cleaned = re.sub(r'\s*[AaPp][Mm]', '', date_str)
+                                cleaned = cleaned.replace('_', '-').replace(' ', '-').replace('T', '-')
+                                
+                                # Parse date and time components
+                                dt_parts = re.match(r'(\d{4})-(\d{2})-(\d{2})-(\d{1,2})-(\d{2})-(\d{2})', cleaned)
+                                if dt_parts:
+                                    year, month, day, hour, minute, second = map(int, dt_parts.groups())
+                                    
+                                    # Convert 12-hour to 24-hour format
+                                    if am_pm == 'PM' and hour < 12:
+                                        hour += 12
+                                    elif am_pm == 'AM' and hour == 12:
+                                        hour = 0
+                                    
+                                    original_date = datetime(year, month, day, hour, minute, second)
+                                    extracted_time = True
+                                    break
+                            
+                            # YYYY-MM-DD hh:mm AM/PM
+                            elif re.match(r'\d{4}[-_]\d{2}[-_]\d{2}[-_ T]\d{1,2}[-_:]\d{2}\s*[AaPp][Mm]', date_str):
+                                # Remove AM/PM for parsing
+                                cleaned = re.sub(r'\s*[AaPp][Mm]', '', date_str)
+                                cleaned = cleaned.replace('_', '-').replace(' ', '-').replace('T', '-')
+                                
+                                # Parse date and time components
+                                dt_parts = re.match(r'(\d{4})-(\d{2})-(\d{2})-(\d{1,2})-(\d{2})', cleaned)
+                                if dt_parts:
+                                    year, month, day, hour, minute = map(int, dt_parts.groups())
+                                    
+                                    # Convert 12-hour to 24-hour format
+                                    if am_pm == 'PM' and hour < 12:
+                                        hour += 12
+                                    elif am_pm == 'AM' and hour == 12:
+                                        hour = 0
+                                    
+                                    original_date = datetime(year, month, day, hour, minute)
+                                    extracted_time = True
+                                    break
+                            
+                            # DD-MM-YYYY hh:mm:ss AM/PM or MM-DD-YYYY hh:mm:ss AM/PM
+                            elif re.match(r'\d{2}[-_]\d{2}[-_]\d{4}[-_ T]\d{1,2}[-_:]\d{2}[-_:]\d{2}\s*[AaPp][Mm]', date_str):
+                                # Remove AM/PM for parsing
+                                cleaned = re.sub(r'\s*[AaPp][Mm]', '', date_str)
+                                cleaned = cleaned.replace('_', '-').replace(' ', '-').replace('T', '-')
+                                
+                                # Try DD-MM-YYYY format first
+                                try:
+                                    dt_parts = re.match(r'(\d{2})-(\d{2})-(\d{4})-(\d{1,2})-(\d{2})-(\d{2})', cleaned)
+                                    if dt_parts:
+                                        day, month, year, hour, minute, second = map(int, dt_parts.groups())
+                                        
+                                        # Convert 12-hour to 24-hour format
+                                        if am_pm == 'PM' and hour < 12:
+                                            hour += 12
+                                        elif am_pm == 'AM' and hour == 12:
+                                            hour = 0
+                                        
+                                        original_date = datetime(year, month, day, hour, minute, second)
+                                        extracted_time = True
+                                        break
+                                except ValueError:
+                                    # Try MM-DD-YYYY format
+                                    dt_parts = re.match(r'(\d{2})-(\d{2})-(\d{4})-(\d{1,2})-(\d{2})-(\d{2})', cleaned)
+                                    if dt_parts:
+                                        month, day, year, hour, minute, second = map(int, dt_parts.groups())
+                                        
+                                        # Convert 12-hour to 24-hour format
+                                        if am_pm == 'PM' and hour < 12:
+                                            hour += 12
+                                        elif am_pm == 'AM' and hour == 12:
+                                            hour = 0
+                                        
+                                        original_date = datetime(year, month, day, hour, minute, second)
+                                        extracted_time = True
+                                        break
+                            
+                            # DD-MM-YYYY hh:mm AM/PM or MM-DD-YYYY hh:mm AM/PM
+                            elif re.match(r'\d{2}[-_]\d{2}[-_]\d{4}[-_ T]\d{1,2}[-_:]\d{2}\s*[AaPp][Mm]', date_str):
+                                # Remove AM/PM for parsing
+                                cleaned = re.sub(r'\s*[AaPp][Mm]', '', date_str)
+                                cleaned = cleaned.replace('_', '-').replace(' ', '-').replace('T', '-')
+                                
+                                # Try DD-MM-YYYY format first
+                                try:
+                                    dt_parts = re.match(r'(\d{2})-(\d{2})-(\d{4})-(\d{1,2})-(\d{2})', cleaned)
+                                    if dt_parts:
+                                        day, month, year, hour, minute = map(int, dt_parts.groups())
+                                        
+                                        # Convert 12-hour to 24-hour format
+                                        if am_pm == 'PM' and hour < 12:
+                                            hour += 12
+                                        elif am_pm == 'AM' and hour == 12:
+                                            hour = 0
+                                        
+                                        original_date = datetime(year, month, day, hour, minute)
+                                        extracted_time = True
+                                        break
+                                except ValueError:
+                                    # Try MM-DD-YYYY format
+                                    dt_parts = re.match(r'(\d{2})-(\d{2})-(\d{4})-(\d{1,2})-(\d{2})', cleaned)
+                                    if dt_parts:
+                                        month, day, year, hour, minute = map(int, dt_parts.groups())
+                                        
+                                        # Convert 12-hour to 24-hour format
+                                        if am_pm == 'PM' and hour < 12:
+                                            hour += 12
+                                        elif am_pm == 'AM' and hour == 12:
+                                            hour = 0
+                                        
+                                        original_date = datetime(year, month, day, hour, minute)
+                                        extracted_time = True
+                                        break
+                            
+                            # Standalone time formats with AM/PM
+                            elif re.match(r'\d{1,2}[-_:]\d{2}[-_:]\d{2}\s*[AaPp][Mm]', date_str):
+                                # HH:MM:SS AM/PM
+                                cleaned = re.sub(r'\s*[AaPp][Mm]', '', date_str).replace('_', ':')
+                                time_parts = re.match(r'(\d{1,2}):(\d{2}):(\d{2})', cleaned)
+                                if time_parts:
+                                    hour, minute, second = map(int, time_parts.groups())
+                                    
+                                    # Convert 12-hour to 24-hour format
+                                    if am_pm == 'PM' and hour < 12:
+                                        hour += 12
+                                    elif am_pm == 'AM' and hour == 12:
+                                        hour = 0
+                                    
+                                    # Get date from file modification time
+                                    date_obj = datetime.fromtimestamp(os.path.getmtime(filepath)).date()
+                                    original_date = datetime.combine(date_obj, time(hour, minute, second))
+                                    extracted_time = True
+                                    break
+                            
+                            elif re.match(r'\d{1,2}[-_:]\d{2}\s*[AaPp][Mm]', date_str):
+                                # HH:MM AM/PM
+                                cleaned = re.sub(r'\s*[AaPp][Mm]', '', date_str).replace('_', ':')
+                                time_parts = re.match(r'(\d{1,2}):(\d{2})', cleaned)
+                                if time_parts:
+                                    hour, minute = map(int, time_parts.groups())
+                                    
+                                    # Convert 12-hour to 24-hour format
+                                    if am_pm == 'PM' and hour < 12:
+                                        hour += 12
+                                    elif am_pm == 'AM' and hour == 12:
+                                        hour = 0
+                                    
+                                    # Get date from file modification time
+                                    date_obj = datetime.fromtimestamp(os.path.getmtime(filepath)).date()
+                                    original_date = datetime.combine(date_obj, time(hour, minute))
+                                    extracted_time = True
+                                    break
+                            
+                            elif re.match(r'\d{1,2}[AaPp][Mm]', date_str):
+                                # HAM/PM (e.g., 9AM, 10PM)
+                                hour_match = re.match(r'(\d{1,2})[AaPp][Mm]', date_str)
+                                if hour_match:
+                                    hour = int(hour_match.group(1))
+                                    
+                                    # Convert 12-hour to 24-hour format
+                                    if am_pm == 'PM' and hour < 12:
+                                        hour += 12
+                                    elif am_pm == 'AM' and hour == 12:
+                                        hour = 0
+                                    
+                                    # Get date from file modification time
+                                    date_obj = datetime.fromtimestamp(os.path.getmtime(filepath)).date()
+                                    original_date = datetime.combine(date_obj, time(hour, 0))
+                                    extracted_time = True
+                                    break
+                        
+                        # 24-hour time formats (high priority)
+                        elif re.match(r'\d{4}[-_]\d{2}[-_]\d{2}[-_ T]\d{2}[-_:]\d{2}[-_:]\d{2}', date_str):
+                            # YYYY-MM-DD HH:MM:SS
+                            cleaned = date_str.replace('_', '-').replace(' ', '-').replace('T', '-')
+                            original_date = datetime.strptime(cleaned, '%Y-%m-%d-%H-%M-%S')
+                            extracted_time = True
+                            time_format = "24-hour"
+                            break
+                            
+                        elif re.match(r'\d{4}[-_]\d{2}[-_]\d{2}[-_ T]\d{2}[-_:]\d{2}', date_str):
+                            # YYYY-MM-DD HH:MM
+                            cleaned = date_str.replace('_', '-').replace(' ', '-').replace('T', '-')
+                            original_date = datetime.strptime(cleaned, '%Y-%m-%d-%H-%M')
+                            extracted_time = True
+                            time_format = "24-hour"
+                            break
+                            
+                        elif re.match(r'\d{2}[-_]\d{2}[-_]\d{4}[-_ T]\d{2}[-_:]\d{2}[-_:]\d{2}', date_str):
+                            # DD-MM-YYYY HH:MM:SS or MM-DD-YYYY HH:MM:SS
+                            cleaned = date_str.replace('_', '-').replace(' ', '-').replace('T', '-')
+                            try:
+                                original_date = datetime.strptime(cleaned, '%d-%m-%Y-%H-%M-%S')
+                                extracted_time = True
+                                time_format = "24-hour"
+                                break
+                            except ValueError:
+                                original_date = datetime.strptime(cleaned, '%m-%d-%Y-%H-%M-%S')
+                                extracted_time = True
+                                time_format = "24-hour"
+                                break
+                                
+                        elif re.match(r'\d{2}[-_]\d{2}[-_]\d{4}[-_ T]\d{2}[-_:]\d{2}', date_str):
+                            # DD-MM-YYYY HH:MM or MM-DD-YYYY HH:MM
+                            cleaned = date_str.replace('_', '-').replace(' ', '-').replace('T', '-')
+                            try:
+                                original_date = datetime.strptime(cleaned, '%d-%m-%Y-%H-%M')
+                                extracted_time = True
+                                time_format = "24-hour"
+                                break
+                            except ValueError:
+                                original_date = datetime.strptime(cleaned, '%m-%d-%Y-%H-%M')
+                                extracted_time = True
+                                time_format = "24-hour"
+                                break
+                                
+                        elif re.match(r'\d{8}[-_]\d{6}', date_str):
+                            # YYYYMMDD_HHMMSS or DDMMYYYY_HHMMSS
+                            parts = re.split(r'[-_]', date_str)
+                            date_part = parts[0]
+                            time_part = parts[1]
+                            
+                            try:
+                                # Try YYYYMMDD format
+                                date_obj = datetime.strptime(date_part, '%Y%m%d')
+                                time_obj = datetime.strptime(time_part, '%H%M%S')
+                                original_date = datetime.combine(date_obj.date(), time_obj.time())
+                                extracted_time = True
+                                break
+                            except ValueError:
+                                try:
+                                    # Try DDMMYYYY format
+                                    date_obj = datetime.strptime(date_part, '%d%m%Y')
+                                    time_obj = datetime.strptime(time_part, '%H%M%S')
+                                    original_date = datetime.combine(date_obj.date(), time_obj.time())
+                                    extracted_time = True
+                                    break
+                                except ValueError:
+                                    continue
+                                    
+                        elif re.match(r'\d{8}[-_]\d{4}', date_str):
+                            # YYYYMMDD_HHMM or DDMMYYYY_HHMM
+                            parts = re.split(r'[-_]', date_str)
+                            date_part = parts[0]
+                            time_part = parts[1]
+                            
+                            try:
+                                # Try YYYYMMDD format
+                                date_obj = datetime.strptime(date_part, '%Y%m%d')
+                                time_obj = datetime.strptime(time_part, '%H%M')
+                                original_date = datetime.combine(date_obj.date(), time_obj.time())
+                                extracted_time = True
+                                break
+                            except ValueError:
+                                try:
+                                    # Try DDMMYYYY format
+                                    date_obj = datetime.strptime(date_part, '%d%m%Y')
+                                    time_obj = datetime.strptime(time_part, '%H%M')
+                                    original_date = datetime.combine(date_obj.date(), time_obj.time())
+                                    extracted_time = True
+                                    break
+                                except ValueError:
+                                    continue
+                        
+                        # Time only patterns - need to combine with file date
+                        elif re.match(r'\d{2}[-_:]\d{2}[-_:]\d{2}', date_str):
+                            # HH:MM:SS
+                            cleaned = date_str.replace('_', ':')
+                            time_obj = datetime.strptime(cleaned, '%H:%M:%S').time()
+                            # Get date from file modification time
+                            date_obj = datetime.fromtimestamp(os.path.getmtime(filepath)).date()
+                            original_date = datetime.combine(date_obj, time_obj)
+                            extracted_time = True
+                            break
+                            
+                        elif re.match(r'\d{2}[-_:]\d{2}', date_str):
+                            # HH:MM
+                            cleaned = date_str.replace('_', ':')
+                            time_obj = datetime.strptime(cleaned, '%H:%M').time()
+                            # Get date from file modification time
+                            date_obj = datetime.fromtimestamp(os.path.getmtime(filepath)).date()
+                            original_date = datetime.combine(date_obj, time_obj)
+                            extracted_time = True
+                            break
+                            
+                        elif re.match(r'\d{6}', date_str):
+                            # HHMMSS
+                            time_obj = datetime.strptime(date_str, '%H%M%S').time()
+                            # Get date from file modification time
+                            date_obj = datetime.fromtimestamp(os.path.getmtime(filepath)).date()
+                            original_date = datetime.combine(date_obj, time_obj)
+                            extracted_time = True
+                            break
+                            
+                        elif re.match(r'\d{4}', date_str) and len(date_str) == 4:
+                            # HHMM
+                            time_obj = datetime.strptime(date_str, '%H%M').time()
+                            # Get date from file modification time
+                            date_obj = datetime.fromtimestamp(os.path.getmtime(filepath)).date()
+                            original_date = datetime.combine(date_obj, time_obj)
+                            extracted_time = True
+                            break
+                        
+                        # Date only patterns (lower priority)
+                        elif re.match(r'\d{4}[-_]\d{2}[-_]\d{2}', date_str):
                             # YYYY-MM-DD
                             cleaned = date_str.replace('_', '-')
                             original_date = datetime.strptime(cleaned, '%Y-%m-%d')
                             break
+                            
                         elif re.match(r'\d{2}[-_]\d{2}[-_]\d{4}', date_str):
                             # Could be DD-MM-YYYY or MM-DD-YYYY, try both
                             cleaned = date_str.replace('_', '-')
@@ -110,7 +465,8 @@ def get_audio_files(directory: str, sort_by_date: bool = True, debug_log: bool =
                             except ValueError:
                                 original_date = datetime.strptime(cleaned, '%m-%d-%Y')
                                 break
-                        elif re.match(r'\d{8}', date_str):
+                                
+                        elif re.match(r'\d{8}', date_str) and len(date_str) == 8:
                             # Could be YYYYMMDD or DDMMYYYY
                             try:
                                 original_date = datetime.strptime(date_str, '%Y%m%d')
@@ -118,19 +474,16 @@ def get_audio_files(directory: str, sort_by_date: bool = True, debug_log: bool =
                             except ValueError:
                                 original_date = datetime.strptime(date_str, '%d%m%Y')
                                 break
+                                
                         elif re.match(r'\d{2}[A-Za-z]{3}\d{4}', date_str):
                             # 01Jan2023
                             original_date = datetime.strptime(date_str, '%d%b%Y')
                             break
+                            
                         elif re.match(r'[A-Za-z]{3}\d{2}[-_]\d{4}', date_str):
                             # Jan01_2023
                             cleaned = date_str.replace('_', '-')
                             original_date = datetime.strptime(cleaned, '%b%d-%Y')
-                            break
-                        elif re.match(r'\d{4}[-_]\d{2}[-_]\d{2}[-_T]\d{2}[-_:]\d{2}', date_str):
-                            # YYYY-MM-DD_HH-MM
-                            cleaned = date_str.replace('_', '-').replace('T', '-')
-                            original_date = datetime.strptime(cleaned, '%Y-%m-%d-%H-%M')
                             break
                     except ValueError:
                         # If this format fails, continue to the next pattern
@@ -143,9 +496,18 @@ def get_audio_files(directory: str, sort_by_date: bool = True, debug_log: bool =
             
             # Store date info for debugging
             if debug_log:
+                time_format_info = "None"
+                if extracted_time:
+                    if 'time_format' in locals():
+                        time_format_info = time_format
+                    else:
+                        time_format_info = "24-hour"  # Default for older time formats
+                
                 date_info[filename] = {
                     "extracted_date": original_date.strftime("%Y-%m-%d %H:%M:%S"),
                     "pattern_used": pattern_used if pattern_used else "None",
+                    "has_time": "Yes" if extracted_time else "No",
+                    "time_format": time_format_info,
                     "path": filepath
                 }
             
@@ -158,13 +520,40 @@ def get_audio_files(directory: str, sort_by_date: bool = True, debug_log: bool =
         if debug_log:
             print("\n===== CHRONOLOGICAL SORTING INFORMATION =====")
             print(f"Found {len(audio_files)} audio files to sort")
-            print("Files will be processed in this order:")
+            
+            # Count files with time information
+            files_with_time = sum(1 for filename in date_info if date_info[filename].get("has_time") == "Yes")
+            print(f"Files with time information: {files_with_time}/{len(audio_files)}")
+            
+            # Count files with different time formats
+            files_with_12h = sum(1 for filename in date_info if date_info[filename].get("time_format") == "12-hour")
+            files_with_24h = sum(1 for filename in date_info if date_info[filename].get("time_format") == "24-hour")
+            files_with_date_only = sum(1 for filename in date_info if date_info[filename].get("has_time") == "No")
+            
+            print(f"Files with 12-hour time: {files_with_12h}")
+            print(f"Files with 24-hour time: {files_with_24h}")
+            print(f"Files with date only: {files_with_date_only}")
+            
+            print("\nFiles will be processed in this order:")
             for i, file in enumerate(audio_files, 1):
                 filename = Path(file).name
                 info = date_info.get(filename, {})
                 date_str = info.get("extracted_date", "Unknown")
                 pattern = info.get("pattern_used", "Unknown")
-                print(f"{i}. {filename} → {date_str} (Pattern: {pattern})")
+                has_time = info.get("has_time", "No")
+                time_format = info.get("time_format", "None")
+                
+                # Format the output to highlight files with time information
+                if time_format == "12-hour":
+                    time_indicator = "🕒"  # 12-hour format
+                elif time_format == "24-hour":
+                    time_indicator = "⏰"  # 24-hour format
+                else:
+                    time_indicator = "📅"  # Date only
+                
+                print(f"{i}. {time_indicator} {filename} → {date_str} (Format: {time_format}, Pattern: {pattern})")
+            
+            print("\nℹ️ Legend: 🕒 = 12-hour time format, ⏰ = 24-hour time format, 📅 = Date only")
             print("=============================================\n")
     else:
         # Sort alphabetically
