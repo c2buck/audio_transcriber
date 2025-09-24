@@ -500,6 +500,7 @@ class UnifiedTranscriber:
                         file_progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Transcribe all audio files in a directory."""
         from utils import get_audio_files, safe_filename, create_html_report, create_json_transcript, create_chunked_json_transcript
+        from audio_converter import process_audio_files_for_web_compatibility
         
         start_time = time.time()
         
@@ -519,6 +520,27 @@ class UnifiedTranscriber:
         
         if progress_callback:
             progress_callback(f"Found {len(audio_files)} files to process using {self.backend_info.display_name}")
+        
+        # Process audio files for web compatibility (convert problematic WAV files)
+        if progress_callback:
+            progress_callback("🔍 Checking audio files for web compatibility...")
+        
+        processed_audio_files, converted_count = process_audio_files_for_web_compatibility(
+            audio_files, progress_callback
+        )
+        
+        # Update the file list to use processed versions
+        audio_files = processed_audio_files
+        
+        # Add conversion metadata to results
+        conversion_info = {
+            'wav_files_converted': converted_count,
+            'total_files_processed': len(audio_files),
+            'has_web_compatible_versions': converted_count > 0
+        }
+        
+        if progress_callback and converted_count > 0:
+            progress_callback(f"✅ Audio compatibility check complete: {converted_count} file(s) converted to web-compatible format")
         
         # Ensure output directory exists
         os.makedirs(output_directory, exist_ok=True)
@@ -598,7 +620,8 @@ class UnifiedTranscriber:
             'success_count': success_count,
             'failure_count': failure_count,
             'backend': self.backend_name,
-            'model_name': self.model_name
+            'model_name': self.model_name,
+            'conversion_info': conversion_info
         }
     
     def _save_individual_transcription(self, result: Dict[str, Any], output_directory: str):

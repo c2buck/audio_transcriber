@@ -1245,13 +1245,22 @@ class AudioTranscriberGUI(QMainWindow):
             success_count = result['success_count']
             failure_count = result['failure_count']
             
-            results_text = f"""
-Transcription Summary:
-• Total files processed: {success_count + failure_count}
-• Successful: {success_count}
-• Failed: {failure_count}
-• Total processing time: {total_time}
-            """.strip()
+            # Build results text with conversion info
+            results_lines = [
+                "Transcription Summary:",
+                f"• Total files processed: {success_count + failure_count}",
+                f"• Successful: {success_count}",
+                f"• Failed: {failure_count}",
+                f"• Total processing time: {total_time}"
+            ]
+            
+            # Add conversion information if applicable
+            conversion_info = result.get('conversion_info', {})
+            if conversion_info.get('wav_files_converted', 0) > 0:
+                results_lines.append(f"• WAV files converted to MP3: {conversion_info['wav_files_converted']}")
+                results_lines.append("• Enhanced web playback compatibility")
+            
+            results_text = "\n".join(results_lines)
             
             self.results_label.setText(results_text)
             self.log("=== TRANSCRIPTION SESSION COMPLETED ===", "SYSTEM")
@@ -1260,6 +1269,13 @@ Transcription Summary:
             if failure_count > 0:
                 self.log(f"Failed transcriptions: {failure_count}", "WARNING")
             self.log(f"Total processing time: {total_time}", "INFO")
+            
+            # Log conversion information if available
+            conversion_info = result.get('conversion_info', {})
+            if conversion_info.get('wav_files_converted', 0) > 0:
+                self.log("🎵 AUDIO CONVERSION SUMMARY:", "SUCCESS")
+                self.log(f"WAV files converted to web-compatible MP3: {conversion_info['wav_files_converted']}", "SUCCESS")
+                self.log("Converted files provide better browser playback compatibility", "INFO")
             
             # Calculate average processing speed
             if result['total_time'] > 0 and success_count > 0:

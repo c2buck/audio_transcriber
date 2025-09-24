@@ -38,8 +38,10 @@ A modern desktop application built with PySide6 that allows you to transcribe au
 
 ### 📊 Output & Reports
 - **Enhanced HTML Reports**: Beautiful reports with timestamped segments and interactive features
+- **Interactive Audio Players**: Embedded HTML5 players with click-to-seek timestamps and playback controls
+- **Automatic WAV Conversion**: Intelligent conversion of problematic WAV files to web-compatible MP3 format
 - **Audio Playback Links**: Direct links to play original files from HTML report
-- **Segment Toggle**: Switch between full text view and timestamped segments
+- **Segment Toggle**: Switch between full text view and timestamped segments  
 - **Individual Files**: Separate .txt files for each transcription with metadata
 - **Statistics Dashboard**: Processing time, success/failure counts, performance metrics
 - **Language Detection**: Automatic language identification and reporting
@@ -122,6 +124,13 @@ cd transcriber_app
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Optional: For automatic WAV to MP3 conversion (enhanced web compatibility)
+pip install pydub
+# Also install ffmpeg for your operating system:
+# Windows: winget install ffmpeg
+# macOS: brew install ffmpeg  
+# Linux: sudo apt install ffmpeg
 ```
 
 ## Quick Start
