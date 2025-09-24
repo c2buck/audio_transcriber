@@ -1082,37 +1082,24 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             
             audioElement.addEventListener('loadedmetadata', function() {{
                 updateTimeDisplay(playerId);
-                console.log('Audio loaded successfully for player ' + playerId);
             }});
             
             // Add error handling for audio loading
             audioElement.addEventListener('error', function(e) {{
-                console.error('Audio loading error for player ' + playerId + ':', e);
-                console.error('Error details:', audioElement.error);
+                console.error('Audio error:', audioElement.error?.message || 'Unknown error');
                 
-                const errorMsg = 'Audio playback error - check console for details';
+                const errorMsg = 'Audio playback error';
                 if (timeDisplay) {{
                     timeDisplay.textContent = errorMsg;
                     timeDisplay.style.color = '#dc3545';
                 }}
             }});
             
-            // Handle source errors (for fallback sources)
-            audioElement.addEventListener('loadstart', function() {{
-                console.log('Starting to load audio for player ' + playerId);
-            }});
-            
-            // Add canplay event for better loading feedback
+            // Reset error styling when audio can play
             audioElement.addEventListener('canplay', function() {{
-                console.log('Audio can start playing for player ' + playerId);
                 if (timeDisplay && timeDisplay.style.color === '#dc3545') {{
                     timeDisplay.style.color = '#495057';  // Reset error color
                 }}
-            }});
-            
-            // Handle loading events
-            audioElement.addEventListener('stalled', function() {{
-                console.log('Audio loading stalled for player ' + playerId);
             }});
             
             // Initialize time display
@@ -1366,22 +1353,6 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         }}
         
         // Audio player management
-        
-        // Simplified audio debugging function
-        function debugAudioFile(playerId) {{
-            const audioElement = audioPlayers.get(playerId);
-            if (!audioElement) return;
-            
-            console.log('=== Audio Debug Info for Player ' + playerId + ' ===');
-            console.log('Ready state:', audioElement.readyState);
-            console.log('Current time:', audioElement.currentTime);
-            console.log('Duration:', audioElement.duration);
-            console.log('Error:', audioElement.error);
-            
-            if (audioElement.error) {{
-                console.log('Error details:', audioElement.error.message);
-            }}
-        }}
     </script>
 </head>
 <body>
@@ -1476,7 +1447,6 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 </div>
                 <div class="file-actions">
                     <a href="javascript:void(0)" onclick="openFileLocation('{audio_file_path}')" class="folder-link" title="Open file location">📁 Open Location</a>
-                    <a href="javascript:void(0)" onclick="debugAudioFile({idx})" class="folder-link" title="Debug audio playback issues">🔧 Debug Audio</a>
                 </div>
                 {f'<div class="duration">Duration: {format_time(item.get("duration", 0))}</div>' if item.get("duration") else ''}
             </div>
