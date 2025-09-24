@@ -917,6 +917,74 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             width: 100%;
             text-align: center;
             border: 1px solid #dee2e6;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }}
+        .timestamp-text:hover {{
+            background: #007bff;
+            color: white;
+            border-color: #007bff;
+            transform: scale(1.05);
+        }}
+        .segment.active {{
+            background: linear-gradient(90deg, #fff3cd 0%, #ffffff 100%);
+            border-left: 4px solid #ffc107;
+        }}
+        .segment.active .timestamp-text {{
+            background: #ffc107;
+            color: #212529;
+            border-color: #ffc107;
+            font-weight: bold;
+        }}
+        .audio-player {{
+            width: 100%;
+            margin: 15px 0;
+            border-radius: 8px;
+            background: #f8f9fa;
+            padding: 15px;
+            border: 1px solid #dee2e6;
+        }}
+        .audio-controls {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }}
+        .control-btn {{
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: background-color 0.2s;
+        }}
+        .control-btn:hover {{
+            background: #0056b3;
+        }}
+        .control-btn:disabled {{
+            background: #6c757d;
+            cursor: not-allowed;
+        }}
+        .playback-speed {{
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }}
+        .time-display {{
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #495057;
+            margin-left: auto;
+        }}
+        .audio-element {{
+            width: 100%;
+            margin-top: 10px;
         }}
         .text-col {{
             padding: 10px 15px;
@@ -977,6 +1045,10 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         }}
      </style>
          <script>
+        // Global variables to track audio players and active segments
+        const audioPlayers = new Map();
+        const activeSegments = new Map();
+        
         function openFileLocation(filePath) {{
             // Try to open the file directly (may auto-play depending on system settings)
             window.open(filePath, '_blank');
@@ -993,6 +1065,162 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             }}
         }}
         
+        function initializeAudioPlayer(playerId, audioSrc) {{
+            const audioElement = document.getElementById('audio-' + playerId);
+            const timeDisplay = document.getElementById('time-' + playerId);
+            
+            if (!audioElement) return;
+            
+            // Store player reference
+            audioPlayers.set(playerId, audioElement);
+            
+            // Add event listeners for time updates
+            audioElement.addEventListener('timeupdate', function() {{
+                updateTimeDisplay(playerId);
+                highlightCurrentSegment(playerId);
+            }});
+            
+            audioElement.addEventListener('loadedmetadata', function() {{
+                updateTimeDisplay(playerId);
+            }});
+            
+            // Initialize time display
+            updateTimeDisplay(playerId);
+        }}
+        
+        function updateTimeDisplay(playerId) {{
+            const audioElement = audioPlayers.get(playerId);
+            const timeDisplay = document.getElementById('time-' + playerId);
+            
+            if (!audioElement || !timeDisplay) return;
+            
+            const current = audioElement.currentTime || 0;
+            const duration = audioElement.duration || 0;
+            
+            timeDisplay.textContent = formatTime(current) + ' / ' + formatTime(duration);
+        }}
+        
+        function formatTime(seconds) {{
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            
+            if (hours > 0) {{
+                return hours.toString().padStart(2, '0') + ':' + 
+                       minutes.toString().padStart(2, '0') + ':' + 
+                       secs.toString().padStart(2, '0');
+            }} else {{
+                return minutes.toString().padStart(2, '0') + ':' + 
+                       secs.toString().padStart(2, '0');
+            }}
+        }}
+        
+        function seekToTime(playerId, seconds) {{
+            const audioElement = audioPlayers.get(playerId);
+            if (!audioElement) return;
+            
+            audioElement.currentTime = seconds;
+            
+            // Auto-play when seeking to a timestamp
+            if (audioElement.paused) {{
+                audioElement.play().catch(e => {{
+                    console.log('Auto-play prevented by browser:', e);
+                }});
+            }}
+        }}
+        
+        function skipTime(playerId, seconds) {{
+            const audioElement = audioPlayers.get(playerId);
+            if (!audioElement) return;
+            
+            audioElement.currentTime = Math.max(0, audioElement.currentTime + seconds);
+        }}
+        
+        function changePlaybackSpeed(playerId, speed) {{
+            const audioElement = audioPlayers.get(playerId);
+            if (!audioElement) return;
+            
+            audioElement.playbackRate = speed;
+            
+            // Update button text
+            const speedBtn = document.getElementById('speed-' + playerId);
+            if (speedBtn) {{
+                speedBtn.textContent = speed + 'x';
+            }}
+        }}
+        
+        function cyclePlaybackSpeed(playerId) {{
+            const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+            const audioElement = audioPlayers.get(playerId);
+            if (!audioElement) return;
+            
+            const currentSpeed = audioElement.playbackRate;
+            let nextSpeedIndex = speeds.indexOf(currentSpeed) + 1;
+            if (nextSpeedIndex >= speeds.length) {{
+                nextSpeedIndex = 0;
+            }}
+            
+            const newSpeed = speeds[nextSpeedIndex];
+            changePlaybackSpeed(playerId, newSpeed);
+        }}
+        
+        function highlightCurrentSegment(playerId) {{
+            const audioElement = audioPlayers.get(playerId);
+            if (!audioElement) return;
+            
+            const currentTime = audioElement.currentTime;
+            const segments = document.querySelectorAll('#segments-' + playerId + ' .segment');
+            
+            // Clear previous active segment
+            const previousActive = activeSegments.get(playerId);
+            if (previousActive) {{
+                previousActive.classList.remove('active');
+            }}
+            
+            // Find and highlight current segment
+            let activeSegment = null;
+            segments.forEach(segment => {{
+                const timestampElement = segment.querySelector('.timestamp-text');
+                if (!timestampElement) return;
+                
+                // Extract start time from data attribute or parse from text
+                const startTime = parseFloat(timestampElement.dataset.seconds) || 0;
+                const nextSegment = segment.nextElementSibling;
+                const endTime = nextSegment ? 
+                    (parseFloat(nextSegment.querySelector('.timestamp-text')?.dataset.seconds) || Infinity) : 
+                    Infinity;
+                
+                if (currentTime >= startTime && currentTime < endTime) {{
+                    segment.classList.add('active');
+                    activeSegment = segment;
+                    
+                    // Auto-scroll to keep active segment visible
+                    scrollToActiveSegment(segment);
+                }}
+            }});
+            
+            activeSegments.set(playerId, activeSegment);
+        }}
+        
+        function scrollToActiveSegment(segment) {{
+            if (!segment) return;
+            
+            const container = segment.closest('.transcription-content');
+            if (!container) return;
+            
+            const containerRect = container.getBoundingClientRect();
+            const segmentRect = segment.getBoundingClientRect();
+            
+            // Check if segment is not fully visible
+            if (segmentRect.top < containerRect.top || segmentRect.bottom > containerRect.bottom) {{
+                segment.scrollIntoView({{
+                    behavior: 'smooth',
+                    block: 'center',
+                    inline: 'nearest'
+                }});
+            }}
+        }}
+        
         function toggleTranscriptionView(transcriptionId) {{
             const segmentView = document.getElementById('segments-' + transcriptionId);
             const fullView = document.getElementById('full-' + transcriptionId);
@@ -1004,12 +1232,68 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 segmentView.style.display = 'block';
                 fullView.style.display = 'none';
                 toggleBtn.textContent = 'Show Full Text';
+                
+                // Initialize segment highlighting when segments view is shown
+                highlightCurrentSegment(transcriptionId);
             }} else {{
                 // Show full text view
                 segmentView.style.display = 'none';
                 fullView.style.display = 'block';
                 toggleBtn.textContent = 'Show Timestamped Segments';
             }}
+        }}
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {{
+            // Only activate if not typing in an input field
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            
+            // Find the currently visible audio player (if any)
+            let activePlayerId = null;
+            for (const [playerId, element] of audioPlayers) {{
+                const playerContainer = element.closest('.transcription');
+                if (playerContainer && isElementVisible(playerContainer)) {{
+                    activePlayerId = playerId;
+                    break;
+                }}
+            }}
+            
+            if (!activePlayerId) return;
+            
+            const audioElement = audioPlayers.get(activePlayerId);
+            if (!audioElement) return;
+            
+            switch(e.key) {{
+                case ' ':
+                    e.preventDefault();
+                    if (audioElement.paused) {{
+                        audioElement.play();
+                    }} else {{
+                        audioElement.pause();
+                    }}
+                    break;
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    skipTime(activePlayerId, e.shiftKey ? -30 : -5);
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    skipTime(activePlayerId, e.shiftKey ? 30 : 5);
+                    break;
+                case 'ArrowUp':
+                    e.preventDefault();
+                    audioElement.volume = Math.min(1, audioElement.volume + 0.1);
+                    break;
+                case 'ArrowDown':
+                    e.preventDefault();
+                    audioElement.volume = Math.max(0, audioElement.volume - 0.1);
+                    break;
+            }}
+        }});
+        
+        function isElementVisible(element) {{
+            const rect = element.getBoundingClientRect();
+            return rect.top < window.innerHeight && rect.bottom > 0;
         }}
     </script>
 </head>
@@ -1050,8 +1334,23 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         <div class="transcription {status_class}">
             <div class="file-info">
                 <div class="filename">{Path(item['file_path']).name}</div>
+                <div class="audio-player">
+                    <div class="audio-controls">
+                        <button class="control-btn" onclick="document.getElementById('audio-{idx}').paused ? document.getElementById('audio-{idx}').play() : document.getElementById('audio-{idx}').pause()">⏯️ Play/Pause</button>
+                        <button class="control-btn" onclick="skipTime({idx}, -10)">⏪ -10s</button>
+                        <button class="control-btn" onclick="skipTime({idx}, 10)">⏩ +10s</button>
+                        <button class="playback-speed" id="speed-{idx}" onclick="cyclePlaybackSpeed({idx})">1x</button>
+                        <div class="time-display" id="time-{idx}">00:00 / 00:00</div>
+                    </div>
+                    <audio id="audio-{idx}" class="audio-element" controls preload="metadata" 
+                           onloadedmetadata="initializeAudioPlayer({idx}, '{audio_file_uri}')">
+                        <source src="{audio_file_uri}" type="audio/mpeg">
+                        <source src="{audio_file_uri}" type="audio/wav">
+                        <source src="{audio_file_uri}" type="audio/mp4">
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
                 <div class="file-actions">
-                    <a href="{audio_file_uri}" class="audio-link" title="Play audio file">🎵 Play Audio</a>
                     <a href="javascript:void(0)" onclick="openFileLocation('{audio_file_path}')" class="folder-link" title="Open file location">📁 Open Location</a>
                 </div>
                 {f'<div class="duration">Duration: {format_time(item.get("duration", 0))}</div>' if item.get("duration") else ''}
@@ -1076,7 +1375,7 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                     html_content += f"""
                 <div class="segment">
                     <div class="timestamp-col">
-                        <div class="timestamp-text">{start_time}</div>
+                        <div class="timestamp-text" data-seconds="{start_seconds}" onclick="seekToTime({idx}, {start_seconds})" title="Click to jump to this timestamp">{start_time}</div>
                     </div>
                     <div class="text-col">
                         <div class="segment-text">{segment_text}</div>
