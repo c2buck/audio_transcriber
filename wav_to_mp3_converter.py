@@ -3,6 +3,10 @@
 WAV to MP3 Converter for Web Playback Compatibility
 ====================================================
 
+OPTIONAL STANDALONE TOOL: The main transcription application now automatically
+converts problematic WAV files. This tool is provided for manual conversion
+or advanced use cases.
+
 This utility converts WAV files that have browser playback issues to MP3 format
 for better web compatibility while preserving the original files.
 

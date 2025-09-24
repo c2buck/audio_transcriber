@@ -1090,16 +1090,10 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 console.error('Audio loading error for player ' + playerId + ':', e);
                 console.error('Error details:', audioElement.error);
                 
-                // Check if this is a WAV decoding error
-                if (audioElement.src.toLowerCase().includes('.wav') && 
-                    (audioElement.error?.code === 3 || audioElement.error?.code === 4)) {{
-                    handleWavPlaybackError(playerId, audioElement);
-                }} else {{
-                    const errorMsg = 'Error loading audio file. Please check the file format.';
-                    if (timeDisplay) {{
-                        timeDisplay.textContent = errorMsg;
-                        timeDisplay.style.color = '#dc3545';
-                    }}
+                const errorMsg = 'Audio playback error - check console for details';
+                if (timeDisplay) {{
+                    timeDisplay.textContent = errorMsg;
+                    timeDisplay.style.color = '#dc3545';
                 }}
             }});
             
@@ -1116,25 +1110,9 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 }}
             }});
             
-            // Handle complete loading failures
+            // Handle loading events
             audioElement.addEventListener('stalled', function() {{
                 console.log('Audio loading stalled for player ' + playerId);
-                if (audioElement.src.toLowerCase().includes('.wav')) {{
-                    setTimeout(() => {{
-                        if (audioElement.readyState < 2 && audioElement.error) {{
-                            console.log('WAV file failed to load - likely encoding issue');
-                            handleWavPlaybackError(playerId, audioElement);
-                        }}
-                    }}, 3000); // Wait 3 seconds before marking as failed
-                }}
-            }});
-            
-            // Detect when all sources fail
-            audioElement.addEventListener('emptied', function() {{
-                if (audioElement.src.toLowerCase().includes('.wav') && audioElement.error) {{
-                    console.log('All WAV sources failed for player ' + playerId);
-                    handleWavPlaybackError(playerId, audioElement);
-                }}
             }});
             
             // Initialize time display
@@ -1387,78 +1365,22 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             return rect.top < window.innerHeight && rect.bottom > 0;
         }}
         
-        // Track problematic WAV files
-        const problematicWavFiles = new Set();
+        // Audio player management
         
-        // Debug function to check audio file compatibility
+        // Simplified audio debugging function
         function debugAudioFile(playerId) {{
             const audioElement = audioPlayers.get(playerId);
             if (!audioElement) return;
             
             console.log('=== Audio Debug Info for Player ' + playerId + ' ===');
             console.log('Ready state:', audioElement.readyState);
-            console.log('Network state:', audioElement.networkState);
             console.log('Current time:', audioElement.currentTime);
             console.log('Duration:', audioElement.duration);
-            console.log('Paused:', audioElement.paused);
-            console.log('Ended:', audioElement.ended);
             console.log('Error:', audioElement.error);
             
-            // Check source elements
-            const sources = audioElement.querySelectorAll('source');
-            sources.forEach((source, index) => {{
-                console.log('Source ' + index + ':', source.src, 'Type:', source.type);
-            }});
-            
-            // Try to determine why WAV files might not be playing
-            if (audioElement.src.toLowerCase().includes('.wav')) {{
-                console.log('WAV file detected - checking browser support...');
-                const testAudio = document.createElement('audio');
-                const canPlayWav = testAudio.canPlayType('audio/wav');
-                const canPlayXWav = testAudio.canPlayType('audio/x-wav');
-                console.log('Can play audio/wav:', canPlayWav);
-                console.log('Can play audio/x-wav:', canPlayXWav);
-                
-                if (audioElement.error) {{
-                    console.log('WAV File Error Details:');
-                    console.log('- Error code:', audioElement.error.code);
-                    console.log('- Error message:', audioElement.error.message);
-                    console.log('- This WAV file likely has encoding issues incompatible with web browsers');
-                    console.log('- The file can still be transcribed but not played in HTML audio elements');
-                    console.log('- Consider converting to MP3 for web playback compatibility');
-                }}
+            if (audioElement.error) {{
+                console.log('Error details:', audioElement.error.message);
             }}
-        }}
-        
-        // Function to handle WAV playback errors gracefully
-        function handleWavPlaybackError(playerId, audioElement) {{
-            const filename = audioElement.src.split('/').pop();
-            problematicWavFiles.add(filename);
-            
-            // Update UI to show WAV conversion suggestion
-            const timeDisplay = document.getElementById('time-' + playerId);
-            const controlsDiv = audioElement.closest('.audio-controls');
-            
-            if (timeDisplay) {{
-                timeDisplay.innerHTML = '⚠️ WAV format incompatible with browser';
-                timeDisplay.style.color = '#dc3545';
-                timeDisplay.style.fontSize = '0.8em';
-            }}
-            
-            // Add conversion suggestion
-            if (controlsDiv && !controlsDiv.querySelector('.wav-error-msg')) {{
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'wav-error-msg';
-                errorDiv.style.cssText = 'background: #fff3cd; border: 1px solid #ffeaa7; padding: 8px; border-radius: 4px; margin-top: 8px; font-size: 0.85em;';
-                errorDiv.innerHTML = `
-                    <strong>⚠️ WAV Playback Issue:</strong><br>
-                    This WAV file has encoding that browsers can't decode.<br>
-                    <em>Suggestion:</em> Convert to MP3 for web playback, or use external audio player.
-                `;
-                controlsDiv.parentNode.appendChild(errorDiv);
-            }}
-            
-            console.log('WAV file marked as problematic:', filename);
         }}
     </script>
 </head>
@@ -1474,9 +1396,8 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                     <li>Use keyboard shortcuts: Space (play/pause), ← → (skip), ↑ ↓ (volume)</li>
                     <li>Click the speed button (1x) to cycle through playback speeds</li>
                 </ul>
-                <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 8px; border-radius: 4px; margin-top: 8px;">
-                    <strong>⚠️ WAV File Note:</strong> Some WAV files may not play in browsers due to encoding incompatibility. 
-                    These files can still be transcribed successfully. For web playback, consider converting WAV files to MP3 format.
+                <div style="background: #e8f5e8; border: 1px solid #c3e6cb; padding: 8px; border-radius: 4px; margin-top: 8px;">
+                    <strong>🎵 Audio Enhancement:</strong> Problematic WAV files are automatically converted to web-compatible MP3 format for optimal playback.
                 </div>
             </div>
         </div>
@@ -1547,10 +1468,8 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                     </div>
                     <audio id="audio-{idx}" class="audio-element" controls preload="metadata" 
                            onloadedmetadata="initializeAudioPlayer({idx}, '{web_mp3_path if web_mp3_path else audio_file_uri}')">
-                        {f'<source src="{web_mp3_path}" type="audio/mpeg">' if web_mp3_path else f'<source src="{audio_file_uri}" type="{primary_mime_type}">'}
-                        {f'<source src="{audio_file_uri}" type="audio/wav">' if file_extension == '.wav' and not web_mp3_path else ''}
-                        {f'<source src="{audio_file_uri}" type="audio/x-wav">' if file_extension == '.wav' and not web_mp3_path else ''}
-                        {f'<source src="{audio_file_uri}">' if not web_mp3_path else ''}
+                        <source src="{web_mp3_path if web_mp3_path else audio_file_uri}" type="{primary_mime_type}">
+                        <source src="{audio_file_uri}">
                         Your browser does not support the audio element.
                     </audio>
                     {f'<div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 6px; border-radius: 4px; margin-top: 6px; font-size: 0.8em; color: #155724;"><strong>✅ Using web-compatible MP3 version</strong> (Original: {Path(item["file_path"]).name})</div>' if web_mp3_path else ''}
@@ -1613,25 +1532,7 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         </div>
 """
     
-    # Count WAV files for conversion suggestion
-    wav_files_count = sum(1 for item in transcriptions if item.get('success') and Path(item['file_path']).suffix.lower() == '.wav')
-    
-    if wav_files_count > 0:
-        html_content += f"""
-        <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 6px; margin: 20px 0;">
-            <h3 style="color: #856404; margin-top: 0;">🔧 WAV File Conversion Suggestion</h3>
-            <p style="margin-bottom: 10px;">Found <strong>{wav_files_count} WAV file(s)</strong> in this report. If you experience playback issues:</p>
-            <ol style="margin-left: 20px;">
-                <li>Use the included <code>wav_to_mp3_converter.py</code> script to create web-compatible versions</li>
-                <li>Run: <code>python wav_to_mp3_converter.py &lt;audio_directory&gt;</code></li>
-                <li>The converter will create *_web.mp3 files that work better in browsers</li>
-                <li>Re-generate this report to automatically use the MP3 versions</li>
-            </ol>
-            <p style="margin-bottom: 0; font-style: italic; color: #6c757d;">
-                Note: Original WAV files work fine for transcription - this is only for web playback compatibility.
-            </p>
-        </div>
-"""
+    # Note: Manual conversion suggestions removed since conversion is now automatic
     
     html_content += """
         <div class="timestamp">

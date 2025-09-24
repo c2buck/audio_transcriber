@@ -20,15 +20,11 @@ from typing import List, Dict, Tuple, Optional, Callable
 def check_conversion_dependencies() -> bool:
     """Check if audio conversion dependencies are available."""
     try:
-        from pydub import AudioSegment
-        from pydub.utils import which
-        
-        # Check if ffmpeg is available
-        if not which("ffmpeg"):
-            return False
-            
-        return True
-    except ImportError:
+        # Check if ffmpeg is available directly (more reliable than pydub)
+        import subprocess
+        result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, timeout=5)
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
         return False
 
 
@@ -39,15 +35,13 @@ def install_conversion_dependencies_message() -> str:
 
 To enable automatic WAV conversion for web compatibility:
 
-1. Install pydub:
-   pip install pydub
-
-2. Install ffmpeg:
-   • Windows: winget install ffmpeg (or download from ffmpeg.org)
-   • macOS: brew install ffmpeg  
-   • Linux: sudo apt install ffmpeg
+Install ffmpeg:
+• Windows: winget install ffmpeg (or download from ffmpeg.org)
+• macOS: brew install ffmpeg  
+• Linux: sudo apt install ffmpeg
 
 After installation, restart the application to enable automatic conversion.
+Note: ffmpeg handles all conversion directly, no additional Python packages needed.
 """
 
 
@@ -89,20 +83,39 @@ def is_wav_likely_problematic(wav_path: str) -> bool:
 
 
 def analyze_wav_file(wav_path: str) -> Dict[str, any]:
-    """Analyze a WAV file and return its properties."""
+    """Analyze a WAV file and return its properties using ffprobe."""
     try:
-        from pydub import AudioSegment
+        import subprocess
+        import json
         
-        audio = AudioSegment.from_wav(wav_path)
+        # Use ffprobe to get audio information
+        result = subprocess.run([
+            'ffprobe', '-v', 'quiet', '-print_format', 'json', '-show_streams', wav_path
+        ], capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            audio_stream = next((s for s in data['streams'] if s['codec_type'] == 'audio'), None)
+            
+            if audio_stream:
+                duration = float(audio_stream.get('duration', 0))
+                channels = int(audio_stream.get('channels', 0))
+                sample_rate = int(audio_stream.get('sample_rate', 0))
+                bit_depth = int(audio_stream.get('bits_per_sample', 16))
+                
+                return {
+                    'can_load': True,
+                    'duration': duration,
+                    'channels': channels,
+                    'sample_rate': sample_rate,
+                    'sample_width': bit_depth // 8,
+                    'format_info': f"{channels}ch, {sample_rate}Hz, {bit_depth}bit",
+                    'file_size_mb': Path(wav_path).stat().st_size / (1024 * 1024)
+                }
+        
         return {
-            'can_load': True,
-            'duration': len(audio) / 1000.0,  # Convert to seconds
-            'channels': audio.channels,
-            'sample_rate': audio.frame_rate,
-            'sample_width': audio.sample_width,
-            'frame_count': audio.frame_count(),
-            'format_info': f"{audio.channels}ch, {audio.frame_rate}Hz, {audio.sample_width*8}bit",
-            'file_size_mb': Path(wav_path).stat().st_size / (1024 * 1024)
+            'can_load': False,
+            'error': f'ffprobe failed with code {result.returncode}'
         }
     except Exception as e:
         return {
@@ -114,7 +127,7 @@ def analyze_wav_file(wav_path: str) -> Dict[str, any]:
 def convert_wav_to_mp3(wav_path: str, output_dir: str = None, 
                       quality: str = "high", progress_callback: Optional[Callable] = None) -> Tuple[bool, str]:
     """
-    Convert a WAV file to MP3 format for web compatibility.
+    Convert a WAV file to MP3 format for web compatibility using ffmpeg directly.
     
     Args:
         wav_path: Path to the WAV file
@@ -126,7 +139,7 @@ def convert_wav_to_mp3(wav_path: str, output_dir: str = None,
         Tuple of (success, result_path_or_error_message)
     """
     try:
-        from pydub import AudioSegment
+        import subprocess
         
         wav_file = Path(wav_path)
         if not wav_file.exists():
@@ -155,29 +168,31 @@ def convert_wav_to_mp3(wav_path: str, output_dir: str = None,
         if progress_callback:
             progress_callback(f"🔄 Converting {wav_file.name} to web-compatible MP3...")
         
-        # Load and convert
-        audio = AudioSegment.from_wav(str(wav_file))
+        # Use ffmpeg for conversion
+        cmd = [
+            'ffmpeg', '-i', str(wav_file),
+            '-codec:a', 'libmp3lame',
+            '-b:a', quality_settings[quality]["bitrate"],
+            '-metadata', f'title={wav_file.stem}',
+            '-metadata', f'comment=Converted from {wav_file.name} for web compatibility',
+            '-metadata', 'artist=Audio Transcriber App',
+            '-y',  # Overwrite output file if it exists
+            str(mp3_path)
+        ]
         
-        # Add metadata
-        audio.export(
-            str(mp3_path),
-            format="mp3",
-            bitrate=quality_settings[quality]["bitrate"],
-            tags={
-                'title': wav_file.stem,
-                'comment': f'Converted from {wav_file.name} for web compatibility',
-                'artist': 'Audio Transcriber App'
-            }
-        )
+        # Run ffmpeg conversion
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         
-        # Verify the conversion
-        if mp3_path.exists():
+        if result.returncode == 0 and mp3_path.exists():
             file_size_mb = mp3_path.stat().st_size / (1024 * 1024)
             if progress_callback:
                 progress_callback(f"✅ Created web-compatible MP3: {mp3_filename} ({file_size_mb:.1f} MB)")
             return True, str(mp3_path)
         else:
-            return False, "Conversion failed - output file not created"
+            error_msg = f"ffmpeg failed with code {result.returncode}"
+            if result.stderr:
+                error_msg += f": {result.stderr[:200]}"
+            return False, error_msg
             
     except Exception as e:
         return False, f"Conversion error: {str(e)}"

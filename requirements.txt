@@ -13,8 +13,8 @@ PySide6>=6.9.1
 # Audio processing
 ffmpeg-python>=0.2.0
 
-# Audio conversion (optional - for automatic WAV to MP3 conversion)
-pydub>=0.25.1
+# Audio conversion (automatic WAV to MP3 conversion uses ffmpeg directly)
+# Note: Only ffmpeg binary is required, no Python packages needed
 
 # Utilities
 numpy>=2.0.0
