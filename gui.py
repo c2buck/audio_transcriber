@@ -1140,7 +1140,7 @@ class AudioTranscriberGUI(QMainWindow):
         input_folder = self.input_folder_label.text()
         if input_folder and input_folder != "No folder selected":
             try:
-                audio_files = get_audio_files(input_folder)
+                audio_files = get_audio_files(input_folder, sort_by_date=True, debug_log=True)
                 if len(audio_files) > 0:
                     self.log(f"Found {len(audio_files)} audio files in selected folder", "SUCCESS")
                     # Log supported file types found

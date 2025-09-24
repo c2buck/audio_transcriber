@@ -35,8 +35,19 @@ def safe_filename(filename: str) -> str:
     return safe_name
 
 
-def get_audio_files(directory: str) -> List[str]:
-    """Get all supported audio files from a directory."""
+def get_audio_files(directory: str, sort_by_date: bool = True, debug_log: bool = False) -> List[str]:
+    """
+    Get all supported audio files from a directory.
+    
+    Args:
+        directory: Directory to scan for audio files
+        sort_by_date: If True, sort by dates extracted from filenames (chronologically)
+                     If False, sort alphabetically
+        debug_log: If True, print debug information about date extraction
+    """
+    import re
+    from datetime import datetime
+    
     supported_extensions = {'.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.wma', '.mp4', '.avi', '.mov', '.mkv'}
     audio_files = []
     
@@ -48,7 +59,118 @@ def get_audio_files(directory: str) -> List[str]:
     except Exception as e:
         print(f"Error scanning directory: {e}")
     
-    return sorted(audio_files)
+    if sort_by_date:
+        # Define common date patterns to extract from filenames
+        date_patterns = [
+            # YYYY-MM-DD or YYYY_MM_DD
+            r'(\d{4}[-_]\d{2}[-_]\d{2})',
+            # DD-MM-YYYY or DD_MM_YYYY
+            r'(\d{2}[-_]\d{2}[-_]\d{4})',
+            # MM-DD-YYYY or MM_DD_YYYY
+            r'(\d{2}[-_]\d{2}[-_]\d{4})',
+            # YYYYMMDD
+            r'(\d{8})',
+            # DDMMYYYY
+            r'(\d{8})',
+            # Month names: 01Jan2023, Jan01_2023, etc.
+            r'(\d{2}[A-Za-z]{3}\d{4})',
+            r'([A-Za-z]{3}\d{2}[-_]\d{4})',
+            # Dates with time: YYYY-MM-DD_HH-MM, etc.
+            r'(\d{4}[-_]\d{2}[-_]\d{2}[-_T]\d{2}[-_:]\d{2})',
+        ]
+        
+        # Dictionary to store extracted dates for debugging
+        date_info = {}
+        
+        def extract_date_from_filename(filepath):
+            filename = Path(filepath).name
+            original_date = None
+            pattern_used = None
+            
+            # Try all patterns until we find a match
+            for pattern in date_patterns:
+                match = re.search(pattern, filename)
+                if match:
+                    date_str = match.group(1)
+                    pattern_used = pattern
+                    
+                    # Try different date formats based on the pattern matched
+                    try:
+                        if re.match(r'\d{4}[-_]\d{2}[-_]\d{2}', date_str):
+                            # YYYY-MM-DD
+                            cleaned = date_str.replace('_', '-')
+                            original_date = datetime.strptime(cleaned, '%Y-%m-%d')
+                            break
+                        elif re.match(r'\d{2}[-_]\d{2}[-_]\d{4}', date_str):
+                            # Could be DD-MM-YYYY or MM-DD-YYYY, try both
+                            cleaned = date_str.replace('_', '-')
+                            try:
+                                original_date = datetime.strptime(cleaned, '%d-%m-%Y')
+                                break
+                            except ValueError:
+                                original_date = datetime.strptime(cleaned, '%m-%d-%Y')
+                                break
+                        elif re.match(r'\d{8}', date_str):
+                            # Could be YYYYMMDD or DDMMYYYY
+                            try:
+                                original_date = datetime.strptime(date_str, '%Y%m%d')
+                                break
+                            except ValueError:
+                                original_date = datetime.strptime(date_str, '%d%m%Y')
+                                break
+                        elif re.match(r'\d{2}[A-Za-z]{3}\d{4}', date_str):
+                            # 01Jan2023
+                            original_date = datetime.strptime(date_str, '%d%b%Y')
+                            break
+                        elif re.match(r'[A-Za-z]{3}\d{2}[-_]\d{4}', date_str):
+                            # Jan01_2023
+                            cleaned = date_str.replace('_', '-')
+                            original_date = datetime.strptime(cleaned, '%b%d-%Y')
+                            break
+                        elif re.match(r'\d{4}[-_]\d{2}[-_]\d{2}[-_T]\d{2}[-_:]\d{2}', date_str):
+                            # YYYY-MM-DD_HH-MM
+                            cleaned = date_str.replace('_', '-').replace('T', '-')
+                            original_date = datetime.strptime(cleaned, '%Y-%m-%d-%H-%M')
+                            break
+                    except ValueError:
+                        # If this format fails, continue to the next pattern
+                        continue
+            
+            # If no valid date found, use file modification time as fallback
+            if original_date is None:
+                original_date = datetime.fromtimestamp(os.path.getmtime(filepath))
+                pattern_used = "file_modification_time"
+            
+            # Store date info for debugging
+            if debug_log:
+                date_info[filename] = {
+                    "extracted_date": original_date.strftime("%Y-%m-%d %H:%M:%S"),
+                    "pattern_used": pattern_used if pattern_used else "None",
+                    "path": filepath
+                }
+            
+            return original_date
+        
+        # Sort files by extracted date
+        audio_files.sort(key=extract_date_from_filename)
+        
+        # Print debug information if requested
+        if debug_log:
+            print("\n===== CHRONOLOGICAL SORTING INFORMATION =====")
+            print(f"Found {len(audio_files)} audio files to sort")
+            print("Files will be processed in this order:")
+            for i, file in enumerate(audio_files, 1):
+                filename = Path(file).name
+                info = date_info.get(filename, {})
+                date_str = info.get("extracted_date", "Unknown")
+                pattern = info.get("pattern_used", "Unknown")
+                print(f"{i}. {filename} → {date_str} (Pattern: {pattern})")
+            print("=============================================\n")
+    else:
+        # Sort alphabetically
+        audio_files.sort()
+    
+    return audio_files
 
 
 def create_chunked_json_transcript(transcription_results: List[Dict[str, Any]], output_dir: str, 

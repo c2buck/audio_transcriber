@@ -504,7 +504,7 @@ class UnifiedTranscriber:
         start_time = time.time()
         
         # Get all audio files
-        audio_files = get_audio_files(input_directory)
+        audio_files = get_audio_files(input_directory, sort_by_date=True, debug_log=True)
         
         if not audio_files:
             return {
