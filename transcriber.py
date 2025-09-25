@@ -405,7 +405,8 @@ class AudioTranscriber:
         }"""
             
             new_js = """function openFileLocation(filePath) {
-            // For relative paths in the zip archive
+            // Handle both relative and absolute paths
+            // For relative paths in the zip archive, just open the file directly
             window.open(filePath, '_blank');
         }"""
             

@@ -775,8 +775,36 @@ def create_json_transcript(transcription_results: List[Dict[str, Any]], output_d
 
 
 def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str, 
-                      total_time: float, success_count: int, failure_count: int) -> str:
-    """Create an HTML report with all transcriptions, enhanced hyperlinks, and timestamped segments."""
+                      total_time: float, success_count: int, failure_count: int, 
+                      copy_audio_files: bool = True) -> str:
+    """
+    Create an HTML report with all transcriptions, enhanced hyperlinks, and timestamped segments.
+    
+    Args:
+        transcriptions: List of transcription results
+        output_dir: Directory to save the HTML report
+        total_time: Total processing time
+        success_count: Number of successful transcriptions
+        failure_count: Number of failed transcriptions
+        copy_audio_files: If True, copy audio files to output directory for portable results
+    """
+    # If requested, copy audio files to the output directory
+    if copy_audio_files:
+        audio_dir = os.path.join(output_dir, "audio")
+        os.makedirs(audio_dir, exist_ok=True)
+        
+        # Copy each audio file
+        for item in transcriptions:
+            if item['success']:
+                src_path = Path(item['file_path'])
+                dst_path = Path(audio_dir) / src_path.name
+                
+                try:
+                    import shutil
+                    shutil.copy2(src_path, dst_path)
+                    print(f"Copied audio file: {src_path.name}")
+                except Exception as e:
+                    print(f"Error copying audio file {src_path.name}: {e}")
     
     html_content = f"""
 <!DOCTYPE html>
@@ -1050,6 +1078,15 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         const activeSegments = new Map();
         
         function openFileLocation(filePath) {{
+            // Handle both relative and absolute paths
+            // For relative paths, just open the file directly
+            if (!filePath.includes('/') && !filePath.includes('\\\\') && !filePath.startsWith('file:///')) {{
+                // This is a relative path (just filename)
+                window.open(filePath, '_blank');
+                return;
+            }}
+            
+            // For absolute paths (backward compatibility)
             // Try to open the file directly (may auto-play depending on system settings)
             window.open(filePath, '_blank');
             
@@ -1395,8 +1432,13 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
     
     for idx, item in enumerate(transcriptions):
         status_class = "success" if item['success'] else "error"
+        # Create both absolute and relative paths for audio files
         audio_file_uri = Path(item['file_path']).as_uri()
         audio_file_path = str(Path(item['file_path'])).replace('\\\\', '/')
+        
+        # Create relative path for the audio file (in audio subdirectory)
+        # This allows the HTML report to be moved with audio files and still work
+        rel_audio_file = f"audio/{Path(item['file_path']).name}"
         folder_path = str(Path(item['file_path']).parent).replace('\\\\', '/')
         
         # Detect file extension and set appropriate MIME type
@@ -1418,12 +1460,26 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         
         # Check if there's a web-compatible MP3 version of this WAV file
         web_mp3_path = None
+        rel_web_mp3_path = None
         if file_extension == '.wav':
             wav_path = Path(item['file_path'])
             potential_mp3 = wav_path.parent / f"{wav_path.stem}_web.mp3"
             if potential_mp3.exists():
                 web_mp3_path = potential_mp3.as_uri()
+                rel_web_mp3_path = f"audio/{potential_mp3.name}"
                 primary_mime_type = 'audio/mpeg'  # Use MP3 if available
+                
+                # Also copy the web MP3 file to the output directory if we're copying audio files
+                if copy_audio_files:
+                    try:
+                        import shutil
+                        audio_dir = os.path.join(output_dir, "audio")
+                        os.makedirs(audio_dir, exist_ok=True)
+                        dst_path = Path(audio_dir) / potential_mp3.name
+                        shutil.copy2(potential_mp3, dst_path)
+                        print(f"Copied web MP3 file: {potential_mp3.name}")
+                    except Exception as e:
+                        print(f"Error copying web MP3 file {potential_mp3.name}: {e}")
         
         html_content += f"""
         <div class="transcription {status_class}">
@@ -1438,7 +1494,10 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                         <div class="time-display" id="time-{idx}">00:00 / 00:00</div>
                     </div>
                     <audio id="audio-{idx}" class="audio-element" controls preload="metadata" 
-                           onloadedmetadata="initializeAudioPlayer({idx}, '{web_mp3_path if web_mp3_path else audio_file_uri}')">
+                           onloadedmetadata="initializeAudioPlayer({idx}, '{rel_web_mp3_path if rel_web_mp3_path else rel_audio_file}')">
+                        <!-- Use relative paths first for portability, then absolute paths as fallback -->
+                        <source src="{rel_web_mp3_path if rel_web_mp3_path else rel_audio_file}" type="{primary_mime_type}">
+                        <source src="{rel_audio_file}" type="{primary_mime_type}">
                         <source src="{web_mp3_path if web_mp3_path else audio_file_uri}" type="{primary_mime_type}">
                         <source src="{audio_file_uri}">
                         Your browser does not support the audio element.
@@ -1446,7 +1505,7 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                     {f'<div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 6px; border-radius: 4px; margin-top: 6px; font-size: 0.8em; color: #155724;"><strong>✅ Using web-compatible MP3 version</strong> (Original: {Path(item["file_path"]).name})</div>' if web_mp3_path else ''}
                 </div>
                 <div class="file-actions">
-                    <a href="javascript:void(0)" onclick="openFileLocation('{audio_file_path}')" class="folder-link" title="Open file location">📁 Open Location</a>
+                    <a href="javascript:void(0)" onclick="openFileLocation('{rel_audio_file}')" class="folder-link" title="Open file location">📁 Open Location</a>
                 </div>
                 {f'<div class="duration">Duration: {format_time(item.get("duration", 0))}</div>' if item.get("duration") else ''}
             </div>
