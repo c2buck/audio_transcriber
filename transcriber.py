@@ -312,15 +312,28 @@ class AudioTranscriber:
             audio_dir = temp_dir / "audio"
             audio_dir.mkdir(exist_ok=True)
             
+            # Keep track of additional web MP3 files
+            web_mp3_files = []
+            
             for i, audio_file in enumerate(audio_files, 1):
-                file_name = Path(audio_file).name
+                file_path = Path(audio_file)
+                file_name = file_path.name
                 shutil.copy2(audio_file, audio_dir / file_name)
+                
+                # Check for web-compatible MP3 version if this is a WAV file
+                if file_path.suffix.lower() == '.wav':
+                    potential_mp3 = file_path.parent / f"{file_path.stem}_web.mp3"
+                    if potential_mp3.exists():
+                        web_mp3_files.append(potential_mp3)
+                        shutil.copy2(potential_mp3, audio_dir / potential_mp3.name)
                 
                 if progress_callback and i % 5 == 0:  # Update every 5 files
                     progress_callback(f"Copying audio files: {i}/{len(audio_files)}")
             
+            # Log the total number of files copied
+            total_files = len(audio_files) + len(web_mp3_files)
             if progress_callback:
-                progress_callback(f"Copied {len(audio_files)} audio files to zip archive")
+                progress_callback(f"Copied {total_files} audio files to zip archive ({len(web_mp3_files)} web-compatible MP3s)")
             
             # Update HTML file to use relative paths for audio files
             if html_report.exists():
@@ -370,6 +383,21 @@ class AudioTranscriber:
                 content = f.read()
             
             import re
+            
+            # Update all source elements to use relative paths
+            # Replace any remaining absolute paths in audio sources
+            content = re.sub(
+                r'<source src="file:///[^"]*?([^/\\]+?)(?:")',
+                f'<source src="{audio_dir_name}/\\1"',
+                content
+            )
+            
+            # Replace any remaining absolute URIs in onloadedmetadata
+            content = re.sub(
+                r'onloadedmetadata="initializeAudioPlayer\((\d+), \'file:///[^\']*?([^/\\]+?)(?:\')',
+                f'onloadedmetadata="initializeAudioPlayer(\\1, \'{audio_dir_name}/\\2\'',
+                content
+            )
             
             # First, modify the href links for "Play Audio" buttons
             # Find href="file:///path/to/file.mp3" and replace with href="audio/file.mp3"
