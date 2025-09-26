@@ -774,6 +774,54 @@ def create_json_transcript(transcription_results: List[Dict[str, Any]], output_d
         return None
 
 
+def escape_js_string(s: str) -> str:
+    """
+    Escape a string for safe use in JavaScript string literals.
+    
+    Args:
+        s: String to escape
+        
+    Returns:
+        Escaped string safe for JavaScript
+    """
+    if not s:
+        return s
+    
+    # Replace problematic characters that can break JavaScript strings
+    s = s.replace('\\', '\\\\')  # Escape backslashes first
+    s = s.replace("'", "\\'")    # Escape single quotes
+    s = s.replace('"', '\\"')    # Escape double quotes
+    s = s.replace('\n', '\\n')   # Escape newlines
+    s = s.replace('\r', '\\r')   # Escape carriage returns
+    s = s.replace('\t', '\\t')   # Escape tabs
+    return s
+
+
+def escape_filename_for_html(filename: str) -> str:
+    """
+    Escape a filename for safe use in HTML src attributes.
+    This handles URL fragments and other problematic characters.
+    
+    Args:
+        filename: Filename to escape
+        
+    Returns:
+        URL-encoded filename safe for HTML src attributes
+    """
+    if not filename:
+        return filename
+    
+    import urllib.parse
+    # URL encode the filename to handle special characters like #
+    # But preserve the path separator if it exists
+    if '/' in filename:
+        parts = filename.split('/')
+        encoded_parts = [urllib.parse.quote(part, safe='') for part in parts]
+        return '/'.join(encoded_parts)
+    else:
+        return urllib.parse.quote(filename, safe='')
+
+
 def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str, 
                       total_time: float, success_count: int, failure_count: int) -> str:
     """
@@ -1464,16 +1512,16 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                         <div class="time-display" id="time-{idx}">00:00 / 00:00</div>
                     </div>
                     <audio id="audio-{idx}" class="audio-element" controls preload="metadata" 
-                           onloadedmetadata="initializeAudioPlayer({idx}, '{rel_web_mp3_path if rel_web_mp3_path else rel_audio_file}')">
+                           onloadedmetadata="initializeAudioPlayer({idx}, '{escape_js_string(rel_web_mp3_path if rel_web_mp3_path else rel_audio_file)}')">
                         <!-- Use only relative paths for portability -->
-                        <source src="{rel_web_mp3_path if rel_web_mp3_path else rel_audio_file}" type="{primary_mime_type}">
-                        <source src="{rel_audio_file}" type="{primary_mime_type}">
+                        <source src="{escape_filename_for_html(rel_web_mp3_path if rel_web_mp3_path else rel_audio_file)}" type="{primary_mime_type}">
+                        <source src="{escape_filename_for_html(rel_audio_file)}" type="{primary_mime_type}">
                         Your browser does not support the audio element.
                     </audio>
                     {f'<div style="background: #d4edda; border: 1px solid #c3e6cb; padding: 6px; border-radius: 4px; margin-top: 6px; font-size: 0.8em; color: #155724;"><strong>✅ Using web-compatible MP3 version</strong> (Original: {Path(item["file_path"]).name})</div>' if web_mp3_path else ''}
                 </div>
                 <div class="file-actions">
-                    <a href="javascript:void(0)" onclick="openFileLocation('{rel_audio_file}')" class="folder-link" title="Open file location">📁 Open Location</a>
+                    <a href="javascript:void(0)" onclick="openFileLocation('{escape_js_string(rel_audio_file)}')" class="folder-link" title="Open file location">📁 Open Location</a>
                 </div>
                 {f'<div class="duration">Duration: {format_time(item.get("duration", 0))}</div>' if item.get("duration") else ''}
             </div>
