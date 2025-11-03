@@ -849,7 +849,125 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             line-height: 1.6;
             margin: 0;
             padding: 20px;
+            padding-top: 100px;
             background-color: #f5f5f5;
+        }}
+        .search-container {{
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            padding: 15px 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            border-bottom: 2px solid #007bff;
+        }}
+        .search-wrapper {{
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }}
+        .search-input-group {{
+            flex: 1;
+            min-width: 250px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f8f9fa;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 2px solid #dee2e6;
+        }}
+        .search-input-group:focus-within {{
+            border-color: #007bff;
+            background: white;
+        }}
+        .search-input {{
+            flex: 1;
+            border: none;
+            outline: none;
+            background: transparent;
+            font-size: 14px;
+            padding: 4px 0;
+        }}
+        .search-input::placeholder {{
+            color: #6c757d;
+        }}
+        .search-clear {{
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 18px;
+            color: #6c757d;
+            padding: 0;
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+        .search-clear:hover {{
+            color: #dc3545;
+        }}
+        .search-options {{
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }}
+        .search-option {{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 13px;
+            color: #495057;
+        }}
+        .search-option input[type="checkbox"] {{
+            cursor: pointer;
+        }}
+        .search-navigation {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        .search-nav-btn {{
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: background-color 0.2s;
+        }}
+        .search-nav-btn:hover:not(:disabled) {{
+            background: #0056b3;
+        }}
+        .search-nav-btn:disabled {{
+            background: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }}
+        .search-results-info {{
+            font-size: 13px;
+            color: #495057;
+            min-width: 100px;
+            text-align: center;
+        }}
+        .search-highlight {{
+            background-color: #ffeb3b;
+            padding: 2px 0;
+            border-radius: 2px;
+            font-weight: 500;
+        }}
+        .search-highlight.active {{
+            background-color: #ff9800;
+            color: white;
+            box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.5);
         }}
         .container {{
             max-width: 1200px;
@@ -1420,9 +1538,305 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         }}
         
         // Audio player management
+        
+        // Search functionality
+        let searchMatches = [];
+        let currentMatchIndex = -1;
+        let searchQuery = '';
+        let caseSensitive = false;
+        let wholeWord = false;
+        
+        function performSearch() {{
+            const searchInput = document.getElementById('searchInput');
+            const query = searchInput.value.trim();
+            const caseCheckbox = document.getElementById('caseSensitive');
+            const wholeWordCheckbox = document.getElementById('wholeWord');
+            
+            searchQuery = query;
+            caseSensitive = caseCheckbox.checked;
+            wholeWord = wholeWordCheckbox.checked;
+            
+            // Clear previous highlights
+            clearHighlights();
+            searchMatches = [];
+            currentMatchIndex = -1;
+            
+            if (!query) {{
+                updateSearchResultsInfo();
+                return;
+            }}
+            
+            // Get all searchable text content
+            const searchableElements = document.querySelectorAll('.segment-text, .full-text, .filename');
+            let matchCount = 0;
+            
+            searchableElements.forEach(element => {{
+                // Get original text - if we stored it, use that; otherwise use current textContent
+                let originalText = element.dataset.originalText || element.textContent;
+                
+                // Store original text if not already stored (before any highlights)
+                if (!element.dataset.originalText) {{
+                    element.dataset.originalText = element.textContent;
+                }}
+                
+                const elementMatches = findMatches(originalText, query);
+                
+                if (elementMatches.length > 0) {{
+                    // Create highlighted version
+                    let highlightedText = originalText;
+                    let offset = 0;
+                    
+                    // Sort matches by position (descending) to avoid offset issues
+                    const sortedMatches = [...elementMatches].sort((a, b) => b.index - a.index);
+                    
+                    sortedMatches.forEach(match => {{
+                        const before = highlightedText.substring(0, match.index + offset);
+                        const after = highlightedText.substring(match.index + offset + match.length);
+                        const escapedText = escapeHtml(match.text);
+                        const highlight = `<span class="search-highlight" data-match-index="${{matchCount}}">${{escapedText}}</span>`;
+                        highlightedText = before + highlight + after;
+                        offset += highlight.length - match.length;
+                        
+                        // Store match info
+                        searchMatches.push({{
+                            element: element,
+                            index: matchCount,
+                            textNode: element
+                        }});
+                        matchCount++;
+                    }});
+                    
+                    // Replace text content with HTML
+                    element.innerHTML = highlightedText;
+                }}
+            }});
+            
+            if (searchMatches.length > 0) {{
+                currentMatchIndex = 0;
+                scrollToMatch(0);
+            }}
+            
+            updateSearchResultsInfo();
+        }}
+        
+        function findMatches(text, query) {{
+            const matches = [];
+            let searchText = text;
+            let searchQuery = query;
+            
+            if (!caseSensitive) {{
+                searchText = text.toLowerCase();
+                searchQuery = query.toLowerCase();
+            }}
+            
+            if (wholeWord) {{
+                // Use word boundary regex
+                const regex = new RegExp(`\\\\b${{escapeRegex(searchQuery)}}\\\\b`, caseSensitive ? 'g' : 'gi');
+                let match;
+                while ((match = regex.exec(text)) !== null) {{
+                    matches.push({{
+                        index: match.index,
+                        length: match[0].length,
+                        text: match[0]
+                    }});
+                }}
+            }} else {{
+                // Simple substring search
+                let index = 0;
+                while ((index = searchText.indexOf(searchQuery, index)) !== -1) {{
+                    matches.push({{
+                        index: index,
+                        length: query.length,
+                        text: text.substring(index, index + query.length)
+                    }});
+                    index += query.length;
+                }}
+            }}
+            
+            return matches;
+        }}
+        
+        function escapeRegex(str) {{
+            return str.replace(/[.*+?^${{}}()|[\]\\\\]/g, '\\\\$&');
+        }}
+        
+        function escapeHtml(str) {{
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }}
+        
+        function clearHighlights() {{
+            // Remove all highlights and restore original text
+            const searchableElements = document.querySelectorAll('.segment-text, .full-text, .filename');
+            searchableElements.forEach(element => {{
+                // Restore original text if stored
+                if (element.dataset.originalText) {{
+                    element.textContent = element.dataset.originalText;
+                    // Optionally remove the data attribute if you want to reset
+                    // delete element.dataset.originalText;
+                }} else {{
+                    // Fallback: remove highlight spans
+                    const highlights = element.querySelectorAll('.search-highlight');
+                    highlights.forEach(highlight => {{
+                        const parent = highlight.parentNode;
+                        const text = highlight.textContent;
+                        const textNode = document.createTextNode(text);
+                        parent.replaceChild(textNode, highlight);
+                        parent.normalize();
+                    }});
+                }}
+            }});
+        }}
+        
+        function updateSearchResultsInfo() {{
+            const infoElement = document.getElementById('searchResultsInfo');
+            if (searchMatches.length === 0) {{
+                if (searchQuery) {{
+                    infoElement.textContent = 'No matches found';
+                    infoElement.style.color = '#dc3545';
+                }} else {{
+                    infoElement.textContent = '';
+                }}
+            }} else {{
+                infoElement.textContent = `${{currentMatchIndex + 1}} / ${{searchMatches.length}}`;
+                infoElement.style.color = '#495057';
+            }}
+            
+            // Update navigation buttons
+            const prevBtn = document.getElementById('prevMatch');
+            const nextBtn = document.getElementById('nextMatch');
+            prevBtn.disabled = searchMatches.length === 0 || currentMatchIndex <= 0;
+            nextBtn.disabled = searchMatches.length === 0 || currentMatchIndex >= searchMatches.length - 1;
+        }}
+        
+        function scrollToMatch(index) {{
+            if (index < 0 || index >= searchMatches.length) return;
+            
+            // Remove active class from all highlights
+            document.querySelectorAll('.search-highlight.active').forEach(el => {{
+                el.classList.remove('active');
+            }});
+            
+            // Find the highlight element with matching index
+            const highlight = document.querySelector(`.search-highlight[data-match-index="${{index}}"]`);
+            if (highlight) {{
+                highlight.classList.add('active');
+                highlight.scrollIntoView({{
+                    behavior: 'smooth',
+                    block: 'center',
+                    inline: 'nearest'
+                }});
+            }}
+        }}
+        
+        function navigateMatch(direction) {{
+            if (searchMatches.length === 0) return;
+            
+            if (direction === 'next') {{
+                currentMatchIndex = (currentMatchIndex + 1) % searchMatches.length;
+            }} else {{
+                currentMatchIndex = (currentMatchIndex - 1 + searchMatches.length) % searchMatches.length;
+            }}
+            
+            scrollToMatch(currentMatchIndex);
+            updateSearchResultsInfo();
+        }}
+        
+        function clearSearch() {{
+            document.getElementById('searchInput').value = '';
+            clearHighlights();
+            searchMatches = [];
+            currentMatchIndex = -1;
+            searchQuery = '';
+            updateSearchResultsInfo();
+        }}
+        
+        // Keyboard shortcuts for search
+        document.addEventListener('keydown', function(e) {{
+            // Ctrl+F or Cmd+F to focus search
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {{
+                e.preventDefault();
+                document.getElementById('searchInput').focus();
+                return;
+            }}
+            
+            // Only handle search shortcuts if search input is not focused
+            const searchInput = document.getElementById('searchInput');
+            if (document.activeElement === searchInput) {{
+                // Enter to find next, Shift+Enter for previous
+                if (e.key === 'Enter') {{
+                    e.preventDefault();
+                    if (e.shiftKey) {{
+                        navigateMatch('prev');
+                    }} else {{
+                        navigateMatch('next');
+                    }}
+                    return;
+                }}
+                // Escape to clear search
+                if (e.key === 'Escape') {{
+                    clearSearch();
+                    searchInput.blur();
+                    return;
+                }}
+            }} else {{
+                // F3 for next match, Shift+F3 for previous
+                if (e.key === 'F3') {{
+                    e.preventDefault();
+                    if (e.shiftKey) {{
+                        navigateMatch('prev');
+                    }} else {{
+                        navigateMatch('next');
+                    }}
+                    return;
+                }}
+            }}
+        }});
+        
+        // Initialize search on page load
+        document.addEventListener('DOMContentLoaded', function() {{
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) {{
+                searchInput.addEventListener('input', performSearch);
+                searchInput.addEventListener('keyup', function(e) {{
+                    if (e.key === 'Enter') {{
+                        e.preventDefault();
+                        navigateMatch('next');
+                    }}
+                }});
+            }}
+            
+            document.getElementById('caseSensitive').addEventListener('change', performSearch);
+            document.getElementById('wholeWord').addEventListener('change', performSearch);
+        }});
     </script>
 </head>
 <body>
+    <div class="search-container">
+        <div class="search-wrapper">
+            <div class="search-input-group">
+                <span style="color: #6c757d; font-size: 16px;">🔍</span>
+                <input type="text" id="searchInput" class="search-input" placeholder="Search transcriptions...">
+                <button class="search-clear" onclick="clearSearch()" title="Clear search">×</button>
+            </div>
+            <div class="search-options">
+                <label class="search-option">
+                    <input type="checkbox" id="caseSensitive">
+                    <span>Match case</span>
+                </label>
+                <label class="search-option">
+                    <input type="checkbox" id="wholeWord">
+                    <span>Whole words/phrases</span>
+                </label>
+            </div>
+            <div class="search-navigation">
+                <button class="search-nav-btn" id="prevMatch" onclick="navigateMatch('prev')" disabled title="Previous match (Shift+F3)">▲ Prev</button>
+                <span class="search-results-info" id="searchResultsInfo"></span>
+                <button class="search-nav-btn" id="nextMatch" onclick="navigateMatch('next')" disabled title="Next match (F3)">Next ▼</button>
+            </div>
+        </div>
+    </div>
     <div class="container">
         <div class="header">
             <h1>Audio Transcription Report</h1>
