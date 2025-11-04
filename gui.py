@@ -3,7 +3,7 @@ import sys
 import threading
 import torch
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -19,6 +19,7 @@ from transcriber import AudioTranscriber
 from backend_manager import BackendManager
 from utils import get_audio_files, create_html_report, create_json_transcript, format_time
 from ai_review import AIReviewManager, TranscriptSegment
+from dv_review import DVWordListAnalyzer
 
 
 class TranscriptionWorker(QThread):
@@ -230,6 +231,10 @@ class AudioTranscriberGUI(QMainWindow):
         
         # Initialize AI Review Manager
         self.ai_review_manager = AIReviewManager()
+        
+        # Initialize DV Review Analyzer
+        self.dv_analyzer = DVWordListAnalyzer()
+        self.dv_analysis_results = None
         
         # Initialize UI
         self.init_ui()
@@ -846,6 +851,28 @@ class AudioTranscriberGUI(QMainWindow):
         self.open_zip_btn.setToolTip("Open the zip file containing HTML report and audio files")
         buttons_layout.addWidget(self.open_zip_btn)
         
+        self.show_top10_dv_btn = QPushButton("🔍 Top 10 DV Review")
+        self.show_top10_dv_btn.setEnabled(False)
+        self.show_top10_dv_btn.clicked.connect(self.show_top10_dv_recordings)
+        self.show_top10_dv_btn.setToolTip("Show top 10 recordings with highest domestic violence scores")
+        self.show_top10_dv_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #c82333;
+            }
+            QPushButton:disabled {
+                background-color: #6c757d;
+            }
+        """)
+        buttons_layout.addWidget(self.show_top10_dv_btn)
+        
         results_layout.addLayout(buttons_layout)
         
         layout.addWidget(results_group)
@@ -1235,6 +1262,7 @@ class AudioTranscriberGUI(QMainWindow):
         self.model_combo.setEnabled(True)
         self.beam_size_combo.setEnabled(True)
         self.device_combo.setEnabled(True)
+        self.show_top10_dv_btn.setEnabled(False)  # Reset button state
         
         if result['success']:
             self.overall_progress.setValue(100)
@@ -1282,11 +1310,49 @@ class AudioTranscriberGUI(QMainWindow):
                 avg_time_per_file = result['total_time'] / (success_count + failure_count)
                 self.log(f"Average time per file: {avg_time_per_file:.1f} seconds", "INFO")
             
-            # Create HTML report
+            # Run DV analysis on transcriptions
+            self.log("🔍 Starting Domestic Violence word list analysis...", "INFO")
+            dv_analysis = self.dv_analyzer.analyze_batch(result['results'])
+            self.dv_analysis_results = dv_analysis
+            
+            # Add DV scores to results
+            dv_score_map = {a['filename']: a for a in dv_analysis['analyses']}
+            for res in result['results']:
+                if res.get('success', False):
+                    filename = Path(res.get('file_path', '')).name
+                    if filename in dv_score_map:
+                        res['dv_score'] = dv_score_map[filename]['total_score']
+                        res['dv_match_count'] = dv_score_map[filename]['match_count']
+            
+            # Log DV analysis summary
+            self.log(f"✅ DV Analysis complete: {dv_analysis['recordings_with_matches']} recordings with matches", "SUCCESS")
+            if dv_analysis['top_10']:
+                self.log(f"⚠️  Top scoring recording: {dv_analysis['top_10'][0]['filename']} (Score: {dv_analysis['top_10'][0]['total_score']})", "WARNING")
+            
+            # Enable top 10 button if there are recordings with scores
+            if dv_analysis['top_10']:
+                self.show_top10_dv_btn.setEnabled(True)
+            
+            # Update results text with DV summary and individual scores
+            if dv_analysis['recordings_with_matches'] > 0:
+                results_lines.append(f"• Recordings flagged for review: {dv_analysis['recordings_with_matches']}")
+                
+                # Add top 3 scores to summary
+                if dv_analysis['top_10']:
+                    top_3 = dv_analysis['top_10'][:3]
+                    results_lines.append("• Top scoring recordings:")
+                    for i, rec in enumerate(top_3, 1):
+                        filename = rec['filename'][:40] + "..." if len(rec['filename']) > 40 else rec['filename']
+                        results_lines.append(f"  {i}. {filename} (Score: {rec['total_score']:.1f})")
+                
+                results_text = "\n".join(results_lines)
+                self.results_label.setText(results_text)
+            
+            # Create HTML report (with DV scores and highlighting)
             output_folder = self.output_folder_label.text()
             html_path = create_html_report(
                 result['results'], output_folder, result['total_time'],
-                success_count, failure_count
+                success_count, failure_count, dv_analysis=self.dv_analysis_results
             )
             
             if html_path:
@@ -1342,6 +1408,99 @@ class AudioTranscriberGUI(QMainWindow):
         if hasattr(self, 'html_report_path') and self.html_report_path:
             import webbrowser
             webbrowser.open(f"file:///{self.html_report_path}")
+    
+    def show_top10_dv_recordings(self):
+        """Display a dialog showing the top 10 recordings with highest DV scores."""
+        if not self.dv_analysis_results or not self.dv_analysis_results.get('top_10'):
+            QMessageBox.information(self, "No Results", "No recordings with DV indicators found.")
+            return
+        
+        top_10 = self.dv_analysis_results['top_10']
+        category_names = self.dv_analyzer.get_category_names()
+        
+        # Create dialog window
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle("Top 10 Recordings Requiring Review")
+        dialog.setIcon(QMessageBox.Warning)
+        
+        # Build detailed message
+        message_parts = [
+            f"<h3>⚠️ Top {len(top_10)} Recordings for Review</h3>",
+            f"<p><b>Total recordings analyzed:</b> {self.dv_analysis_results['total_recordings']}</p>",
+            f"<p><b>Recordings with matches:</b> {self.dv_analysis_results['recordings_with_matches']}</p>",
+            "<hr>",
+            "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; width: 100%;'>",
+            "<tr style='background-color: #f0f0f0;'>",
+            "<th>Rank</th><th>Filename</th><th>Score</th><th>Matches</th><th>Top Categories</th>",
+            "</tr>"
+        ]
+        
+        for idx, recording in enumerate(top_10, 1):
+            filename = recording['filename']
+            score = recording['total_score']
+            match_count = recording['match_count']
+            
+            # Get top 3 categories
+            category_scores = recording.get('category_scores', {})
+            top_categories = sorted(category_scores.items(), key=lambda x: x[1], reverse=True)[:3]
+            category_list = ", ".join([category_names.get(cat, cat) for cat, _ in top_categories])
+            
+            # Color code based on score
+            bg_color = "#ffcccc" if score >= 50 else "#ffe6cc" if score >= 20 else "#fff3cc"
+            
+            message_parts.append(f"<tr style='background-color: {bg_color};'>")
+            message_parts.append(f"<td><b>{idx}</b></td>")
+            message_parts.append(f"<td>{filename}</td>")
+            message_parts.append(f"<td><b>{score:.1f}</b></td>")
+            message_parts.append(f"<td>{match_count}</td>")
+            message_parts.append(f"<td>{category_list if category_list else 'N/A'}</td>")
+            message_parts.append("</tr>")
+        
+        message_parts.append("</table>")
+        message_parts.append("<hr>")
+        message_parts.append("<p><i>Higher scores indicate more matches with DV-related word list.</i></p>")
+        message_parts.append("<p><i>Click 'Details' to see individual match information.</i></p>")
+        
+        dialog.setText("".join(message_parts))
+        dialog.setDetailedText(self._get_detailed_dv_info(top_10))
+        
+        # Add standard buttons
+        dialog.setStandardButtons(QMessageBox.Ok)
+        dialog.exec()
+    
+    def _get_detailed_dv_info(self, top_10: List[Dict[str, Any]]) -> str:
+        """Get detailed information about top 10 recordings."""
+        category_names = self.dv_analyzer.get_category_names()
+        details = []
+        
+        for idx, recording in enumerate(top_10, 1):
+            details.append(f"\n{'='*60}")
+            details.append(f"Rank {idx}: {recording['filename']}")
+            details.append(f"Total Score: {recording['total_score']:.2f}")
+            details.append(f"Total Matches: {recording['match_count']}")
+            details.append(f"{'='*60}")
+            
+            # Show category breakdown
+            category_scores = recording.get('category_scores', {})
+            if category_scores:
+                details.append("\nCategory Breakdown:")
+                for category, score in sorted(category_scores.items(), key=lambda x: x[1], reverse=True):
+                    cat_name = category_names.get(category, category)
+                    details.append(f"  • {cat_name}: {score:.2f}")
+            
+            # Show top matches
+            top_matches = recording.get('top_matches', [])[:10]
+            if top_matches:
+                details.append("\nTop Matches:")
+                for match in top_matches:
+                    cat_name = category_names.get(match['category'], match['category'])
+                    word = match['word']
+                    context = match['context'][:80] + "..." if len(match['context']) > 80 else match['context']
+                    details.append(f"  • [{cat_name}] '{word}' - ...{context}...")
+            
+            details.append("")
+        
+        return "\n".join(details)
     
     def open_zip_file(self):
         """Open the zip file or its containing folder."""

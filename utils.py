@@ -4,7 +4,7 @@ import time
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 def format_time(seconds: float) -> str:
@@ -822,8 +822,144 @@ def escape_filename_for_html(filename: str) -> str:
         return urllib.parse.quote(filename, safe='')
 
 
+def _get_category_color(weight: float) -> tuple:
+    """
+    Get color for a category based on its weight (severity).
+    Returns (bg_color, text_color, border_color) tuple.
+    """
+    if weight >= 40:  # Very high severity - threats, physical/sexual abuse, child harm
+        return ('#fee', '#8b0000', '#dc3545')  # Light red bg, dark red text, red border
+    elif weight >= 25:  # High severity - evidence tampering, version change
+        return ('#fff3cd', '#856404', '#ffc107')  # Light yellow bg, dark yellow text, yellow border
+    elif weight >= 15:  # Medium-high severity - withdrawal, coercive control, stalking
+        return ('#ffe6cc', '#cc6600', '#fd7e14')  # Light orange bg, dark orange text, orange border
+    elif weight >= 8:  # Medium severity - isolation, emotional abuse
+        return ('#e7f3ff', '#004085', '#17a2b8')  # Light blue bg, dark blue text, cyan border
+    else:  # Lower severity
+        return ('#f0f0f0', '#555', '#6c757d')  # Light gray bg, gray text, gray border
+
+
+def _highlight_keywords(text: str, dv_analysis_for_file: Optional[Dict[str, Any]], 
+                       category_weights: Optional[Dict[str, float]]) -> str:
+    """
+    Highlight keywords in text based on DV analysis matches.
+    
+    Args:
+        text: The text to highlight
+        dv_analysis_for_file: DV analysis results for this specific file (from analyze_batch)
+        category_weights: Dictionary mapping category names to weights
+        
+    Returns:
+        HTML string with highlighted keywords
+    """
+    if not text:
+        return ''
+    
+    if not dv_analysis_for_file or not category_weights:
+        return escape_html(text)
+    
+    matches = dv_analysis_for_file.get('matches', {})
+    if not matches:
+        return escape_html(text)
+    
+    # Escape HTML first
+    escaped_text = escape_html(text)
+    
+    # Collect all unique words to highlight, sorted by weight (highest first)
+    # This ensures that if a word appears in multiple categories, we use the highest weight
+    word_highlights = {}  # word (lowercase) -> highlight info with highest weight
+    
+    for category, category_matches in matches.items():
+        weight = category_weights.get(category, 1.0)
+        bg_color, text_color, border_color = _get_category_color(weight)
+        
+        if isinstance(category_matches, list):
+            for match in category_matches:
+                if isinstance(match, dict):
+                    word = match.get('word', '')
+                else:
+                    word = str(match)
+                
+                if not word:
+                    continue
+                
+                word_lower = word.lower()
+                # Only update if this word hasn't been seen, or if this category has higher weight
+                if word_lower not in word_highlights or weight > word_highlights[word_lower]['weight']:
+                    word_highlights[word_lower] = {
+                        'word': word,  # Keep original case
+                        'category': category,
+                        'weight': weight,
+                        'bg_color': bg_color,
+                        'text_color': text_color,
+                        'border_color': border_color
+                    }
+        elif isinstance(category_matches, (str, list)):
+            # Handle case where category_matches might be a simple list of strings
+            words = category_matches if isinstance(category_matches, list) else [category_matches]
+            for word in words:
+                if not word:
+                    continue
+                word_lower = word.lower()
+                if word_lower not in word_highlights or weight > word_highlights[word_lower]['weight']:
+                    word_highlights[word_lower] = {
+                        'word': word,
+                        'category': category,
+                        'weight': weight,
+                        'bg_color': bg_color,
+                        'text_color': text_color,
+                        'border_color': border_color
+                    }
+    
+    # Sort by weight (descending) and then alphabetically to process in consistent order
+    sorted_highlights = sorted(word_highlights.items(), key=lambda x: (-x[1]['weight'], x[0]))
+    
+    # Replace matches with highlighted versions (process in reverse order of length to avoid partial matches)
+    # Sort by word length (longest first) to avoid issues with overlapping words
+    sorted_by_length = sorted(sorted_highlights, key=lambda x: len(x[1]['word']), reverse=True)
+    
+    for word_lower, highlight_info in sorted_by_length:
+        word = highlight_info['word']
+        escaped_word = re.escape(word)
+        
+        # Create highlight span
+        highlight_span = (
+            f'<span style="background-color: {highlight_info["bg_color"]}; '
+            f'color: {highlight_info["text_color"]}; '
+            f'border: 1px solid {highlight_info["border_color"]}; '
+            f'padding: 2px 4px; '
+            f'border-radius: 3px; '
+            f'font-weight: bold; '
+            f'title="Category: {highlight_info["category"]} (Weight: {highlight_info["weight"]:.1f})">'
+            f'{word}</span>'
+        )
+        
+        # Replace word with highlighted version (case-insensitive, word boundaries)
+        # Word boundaries prevent matching inside existing HTML tags
+        escaped_text = re.sub(
+            r'\b' + escaped_word + r'\b',
+            highlight_span,
+            escaped_text,
+            flags=re.IGNORECASE
+        )
+    
+    return escaped_text
+
+
+def escape_html(text: str) -> str:
+    """Escape HTML special characters."""
+    if not text:
+        return ''
+    return (text.replace('&', '&amp;')
+                .replace('<', '&lt;')
+                .replace('>', '&gt;')
+                .replace('"', '&quot;')
+                .replace("'", '&#39;'))
+
+
 def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str, 
-                      total_time: float, success_count: int, failure_count: int) -> str:
+                      total_time: float, success_count: int, failure_count: int,
+                      dv_analysis: Optional[Dict[str, Any]] = None) -> str:
     """
     Create an HTML report with all transcriptions, enhanced hyperlinks, and timestamped segments.
     
@@ -833,8 +969,25 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         total_time: Total processing time
         success_count: Number of successful transcriptions
         failure_count: Number of failed transcriptions
+        dv_analysis: Optional DV analysis results for keyword highlighting and TOC
     """
     # Note: Audio files are not copied here - they will be copied only when creating the zip package
+    
+    # Get category weights from DV analyzer if available
+    category_weights = None
+    if dv_analysis:
+        try:
+            from dv_review import DVWordListAnalyzer
+            analyzer = DVWordListAnalyzer()
+            category_weights = analyzer.category_weights
+        except ImportError:
+            pass
+    
+    # Create a map of filename to DV analysis for quick lookup
+    dv_analysis_map = {}
+    if dv_analysis and 'analyses' in dv_analysis:
+        for analysis in dv_analysis['analyses']:
+            dv_analysis_map[analysis['filename']] = analysis
     
     html_content = f"""
 <!DOCTYPE html>
@@ -1874,6 +2027,85 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         </div>
 """
     
+    # Generate Table of Contents with recordings and DV scores (if available)
+    if transcriptions:
+        html_content += """
+        <div class="toc-container" style="background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+            <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">
+                📋 Recordings Index
+            </h2>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+                <thead>
+                    <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                        <th style="padding: 12px; text-align: left; font-weight: bold; width: 60px;">#</th>
+                        <th style="padding: 12px; text-align: left; font-weight: bold;">Filename</th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; width: 120px;">Status</th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; width: 100px;">DV Score</th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; width: 100px;">Matches</th>
+                    </tr>
+                </thead>
+                <tbody>
+"""
+        
+        # Sort transcriptions by DV score if available (highest first)
+        sorted_transcriptions = sorted(
+            enumerate(transcriptions),
+            key=lambda x: x[1].get('dv_score', -1),
+            reverse=True
+        )
+        
+        for rank, (idx, item) in enumerate(sorted_transcriptions, 1):
+            filename = Path(item['file_path']).name
+            status = "✅ Success" if item['success'] else "❌ Failed"
+            status_color = "#28a745" if item['success'] else "#dc3545"
+            
+            dv_score = item.get('dv_score', 0)
+            dv_match_count = item.get('dv_match_count', 0)
+            
+            # Determine row color based on DV score
+            if dv_score >= 50:
+                row_bg = "#fee"
+                priority = "🔴 HIGH"
+            elif dv_score >= 20:
+                row_bg = "#fff3cd"
+                priority = "🟡 MEDIUM"
+            elif dv_score > 0:
+                row_bg = "#e7f3ff"
+                priority = "🔵 LOW"
+            else:
+                row_bg = "#ffffff"
+                priority = "⚪ None"
+            
+            dv_score_display = f"{dv_score:.1f}" if dv_score > 0 else "—"
+            match_count_display = str(dv_match_count) if dv_match_count > 0 else "—"
+            
+            html_content += f"""
+                    <tr style="background-color: {row_bg}; border-bottom: 1px solid #dee2e6; cursor: pointer;"
+                        onclick="document.getElementById('recording-{idx}').scrollIntoView({{behavior: 'smooth', block: 'start'}});">
+                        <td style="padding: 10px; font-weight: bold;">{rank}</td>
+                        <td style="padding: 10px;">
+                            <a href="#recording-{idx}" style="color: #007bff; text-decoration: none; font-weight: 500;">
+                                {escape_html(filename)}
+                            </a>
+                        </td>
+                        <td style="padding: 10px; text-align: center; color: {status_color}; font-weight: bold;">{status}</td>
+                        <td style="padding: 10px; text-align: center; font-weight: bold; color: {'#dc3545' if dv_score >= 50 else '#ffc107' if dv_score >= 20 else '#17a2b8' if dv_score > 0 else '#6c757d'};">
+                            {dv_score_display}
+                            {f' <span style="font-size: 0.8em; color: #666;">({priority})</span>' if dv_score > 0 else ''}
+                        </td>
+                        <td style="padding: 10px; text-align: center;">{match_count_display}</td>
+                    </tr>
+"""
+        
+        html_content += """
+                </tbody>
+            </table>
+            <div style="margin-top: 15px; padding: 10px; background-color: #f8f9fa; border-radius: 4px; font-size: 0.9em; color: #666;">
+                <strong>💡 Tip:</strong> Click any row to jump to that recording. Recordings are sorted by DV score (highest first).
+            </div>
+        </div>
+"""
+    
     for idx, item in enumerate(transcriptions):
         status_class = "success" if item['success'] else "error"
         # Create both absolute and relative paths for audio files
@@ -1913,8 +2145,12 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 rel_web_mp3_path = f"audio/{potential_mp3.name}"
                 primary_mime_type = 'audio/mpeg'  # Use MP3 if available
         
+        # Get DV analysis for this file
+        filename = Path(item['file_path']).name
+        dv_analysis_for_file = dv_analysis_map.get(filename)
+        
         html_content += f"""
-        <div class="transcription {status_class}">
+        <div class="transcription {status_class}" id="recording-{idx}">
             <div class="file-info">
                 <div class="filename">{Path(item['file_path']).name}</div>
                 <div class="audio-player">
@@ -1941,6 +2177,35 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             </div>
 """
         
+        # Add DV score display if available
+        dv_score = item.get('dv_score', 0)
+        dv_match_count = item.get('dv_match_count', 0)
+        if dv_score > 0:
+            # Determine severity color
+            if dv_score >= 50:
+                score_color = "#dc3545"  # Red - high priority
+                score_bg = "#fee"
+                severity = "HIGH PRIORITY"
+            elif dv_score >= 20:
+                score_color = "#ffc107"  # Yellow - medium priority
+                score_bg = "#fff3cd"
+                severity = "MEDIUM PRIORITY"
+            else:
+                score_color = "#28a745"  # Green - low priority
+                score_bg = "#d4edda"
+                severity = "REVIEW RECOMMENDED"
+            
+            html_content += f"""
+            <div class="dv-score-badge" style="background-color: {score_bg}; border: 2px solid {score_color}; padding: 10px; margin: 10px 0; border-radius: 6px; text-align: center;">
+                <div style="font-size: 1.2em; font-weight: bold; color: {score_color}; margin-bottom: 5px;">
+                    ⚠️ DV Review Score: <span style="font-size: 1.4em;">{dv_score:.1f}</span>
+                </div>
+                <div style="color: #555; font-size: 0.9em;">
+                    Matches Found: {dv_match_count} | Priority: {severity}
+                </div>
+            </div>
+"""
+        
         if item['success']:
             segments = item.get('segments', [])
             if segments:
@@ -1956,13 +2221,15 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                     start_time = format_time(segment.get('start', 0))
                     start_seconds = segment.get('start', 0)
                     segment_text = segment.get('text', '').strip()
+                    # Highlight keywords in segment text
+                    highlighted_segment = _highlight_keywords(segment_text, dv_analysis_for_file, category_weights)
                     html_content += f"""
                 <div class="segment">
                     <div class="timestamp-col">
                         <div class="timestamp-text" data-seconds="{start_seconds}" onclick="seekToTime({idx}, {start_seconds})" title="Click to jump to this timestamp">{start_time}</div>
                     </div>
                     <div class="text-col">
-                        <div class="segment-text">{segment_text}</div>
+                        <div class="segment-text">{highlighted_segment}</div>
                     </div>
                 </div>
 """
@@ -1970,14 +2237,15 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             </div>
             
             <div id="full-{idx}" class="full-text">
-{item['transcription']}
+{_highlight_keywords(item.get('transcription', ''), dv_analysis_for_file, category_weights)}
             </div>
 """
             else:
                 # No segments available, show full text only
+                highlighted_full_text = _highlight_keywords(item.get('transcription', ''), dv_analysis_for_file, category_weights)
                 html_content += f"""
             <div class="full-text">
-{item['transcription']}
+{highlighted_full_text}
             </div>
 """
         else:
