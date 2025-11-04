@@ -25,41 +25,65 @@ class DVWordListAnalyzer:
         self.category_weights = self._build_category_weights()
         
     def _build_word_categories(self) -> Dict[str, List[str]]:
-        """Build comprehensive word lists for different DV-related categories."""
+        """
+        Build comprehensive word lists for different DV-related categories.
+        Prioritizes phrases over single words to reduce false positives.
+        """
         return {
-            # Direct threats and violence
+            # Direct threats and violence - PHRASES FIRST (high priority)
             'threats': [
-                'kill', 'murder', 'die', 'dead', 'hurt', 'harm', 'bash', 'beat', 'punch', 'hit',
-                'smash', 'destroy', 'ruin', 'end you', 'finish you', 'get you', 'sort you out',
-                'deal with you', 'settle this', 'revenge', 'payback', 'you\'ll pay', 'you\'ll regret',
-                'watch your back', 'you\'re dead', 'game over', 'no more', 'last time', 'this is it',
-                'threaten', 'menace', 'intimidate', 'scare', 'frighten', 'terrify', 'warning',
-                'better watch out', 'you better', 'or else', 'consequences', 'you\'ll see',
-                # Threats involving children/pregnancy
+                # Critical threat phrases - highest priority
+                'i\'ll kill you', 'i will kill you', 'going to kill you', 'gonna kill you',
+                'i\'ll murder you', 'i will murder you', 'going to murder you',
+                'you\'re dead', 'you are dead', 'you\'ll be dead', 'you will be dead',
+                'i\'ll hurt you', 'i will hurt you', 'going to hurt you', 'gonna hurt you',
+                'i\'ll get you', 'i will get you', 'going to get you', 'gonna get you',
+                'i\'ll end you', 'i will end you', 'going to end you', 'finish you',
+                'sort you out', 'deal with you', 'settle this', 'you\'ll pay', 'you will pay',
+                'you\'ll regret', 'you will regret', 'watch your back', 'game over',
+                'or else', 'you better', 'better watch out', 'consequences', 'you\'ll see',
+                # Threats to children/pregnancy - phrases only
                 'hurt the baby', 'kill the baby', 'harm the baby', 'hurt your baby', 'kill your baby',
                 'harm your baby', 'hurt the child', 'kill the child', 'harm the child', 'hurt your child',
                 'kill your child', 'harm your child', 'hurt the kids', 'kill the kids', 'harm the kids',
-                'hurt your kids', 'kill your kids', 'harm your kids', 'hurt children', 'kill children',
-                'harm children', 'take the kids', 'take your kids', 'take the children', 'take your children',
+                'hurt your kids', 'kill your kids', 'harm your kids', 'take the kids', 'take your kids',
+                'take the children', 'take your children', 'take them away', 'take them from you',
                 'lose the kids', 'lose your kids', 'lose the children', 'lose your children', 'lose custody',
                 'never see the kids', 'never see your kids', 'never see the children', 'never see your children',
+                'never see them', 'you\'ll never see', 'you won\'t see', 'you can\'t see',
                 'get rid of the baby', 'get rid of it', 'get rid of the kid', 'get rid of the kids',
-                # Australian slang
-                'do you in', 'knock you', 'flatten you', 'lay you out', 'put you down',
-                'take you out', 'get rid of you', 'dispose of you', 'make you disappear'
+                # Australian threat phrases
+                'do you in', 'knock you out', 'flatten you', 'lay you out', 'put you down',
+                'take you out', 'get rid of you', 'dispose of you', 'make you disappear',
+                'bash you', 'flog you', 'belt you', 'thump you',
+                # Only the most threatening single words (context-dependent but worth flagging)
+                'kill', 'murder', 'die', 'dead', 'hurt', 'harm', 'bash', 'beat', 'punch', 'hit',
+                'smash', 'destroy', 'ruin', 'revenge', 'payback'
             ],
             
-            # Physical abuse
+            # Physical abuse - PHRASES FIRST
             'physical_abuse': [
-                'hit', 'hitting', 'strike', 'striking', 'slap', 'slapping', 'punch', 'punching',
-                'kick', 'kicking', 'push', 'pushing', 'shove', 'shoving', 'grab', 'grabbing',
-                'choke', 'choking', 'strangle', 'strangling', 'restrain', 'restraining',
-                'force', 'forcing', 'throw', 'throwing', 'drag', 'dragging', 'pull', 'pulling',
-                'pin', 'pinning', 'hold down', 'held down', 'trap', 'trapping', 'corner',
-                'cornering', 'block', 'blocking', 'prevent', 'preventing', 'stop me', 'can\'t leave',
-                'won\'t let', 'not allowed', 'forbidden', 'restricted', 'locked', 'locked in',
-                'trapped', 'stuck', 'can\'t escape', 'can\'t get away', 'no way out',
-                # Physical harm involving pregnancy/children
+                # Physical violence phrases - highest priority
+                'hit you', 'hitting you', 'hit me', 'hitting me', 'hit her', 'hitting her',
+                'punch you', 'punching you', 'punch me', 'punching me', 'punch her', 'punching her',
+                'kick you', 'kicking you', 'kick me', 'kicking me', 'kick her', 'kicking her',
+                'beat you', 'beating you', 'beat me', 'beating me', 'beat her', 'beating her',
+                'bash you', 'bashing you', 'bash me', 'bashing me', 'bash her', 'bashing her',
+                'slap you', 'slapping you', 'slap me', 'slapping me', 'slap her', 'slapping her',
+                'choke you', 'choking you', 'choke me', 'choking me', 'choke her', 'choking her',
+                'strangle you', 'strangling you', 'strangle me', 'strangling me', 'strangle her', 'strangling her',
+                'grab you', 'grabbing you', 'grab me', 'grabbing me', 'grab her', 'grabbing her',
+                'push you', 'pushing you', 'push me', 'pushing me', 'push her', 'pushing her',
+                'shove you', 'shoving you', 'shove me', 'shoving me', 'shove her', 'shoving her',
+                'throw you', 'throwing you', 'throw me', 'throwing me', 'throw her', 'throwing her',
+                'drag you', 'dragging you', 'drag me', 'dragging me', 'drag her', 'dragging her',
+                'force you', 'forcing you', 'force me', 'forcing me', 'force her', 'forcing her',
+                'hold you down', 'held you down', 'hold me down', 'held me down', 'hold her down', 'held her down',
+                'pin you down', 'pinned you down', 'pin me down', 'pinned me down', 'pin her down', 'pinned her down',
+                'locked you in', 'locked me in', 'locked her in', 'trapped you', 'trapped me', 'trapped her',
+                'can\'t leave', 'won\'t let you leave', 'won\'t let me leave', 'won\'t let her leave',
+                'can\'t escape', 'can\'t get away', 'no way out', 'not allowed to leave',
+                # Physical harm involving pregnancy/children - phrases only
                 'hit the baby', 'hit your baby', 'punch the baby', 'punch your baby', 'kick the baby',
                 'kick your baby', 'hurt the baby', 'hurt your baby', 'hit the child', 'hit your child',
                 'punch the child', 'punch your child', 'kick the child', 'kick your child', 'hurt the child',
@@ -70,245 +94,293 @@ class DVWordListAnalyzer:
                 'hit when pregnant', 'punch when pregnant', 'kick when pregnant', 'hurt when pregnant',
                 'harm the pregnancy', 'hurt the pregnancy', 'damage the pregnancy', 'harm the unborn',
                 'hurt the unborn', 'damage the unborn', 'hurt the fetus', 'harm the fetus',
-                # Australian slang
-                'king hit', 'sucker punch', 'coward punch', 'one punch', 'glass', 'bottle',
-                'bash', 'bashing', 'flog', 'flogging', 'belt', 'belting', 'whack', 'whacking',
-                'clobber', 'clobbering', 'thump', 'thumping', 'wallop', 'walloping'
+                # Australian violent phrases
+                'king hit', 'sucker punch', 'coward punch', 'one punch', 'glass you', 'bottle you',
+                'flog you', 'belting you', 'whack you', 'clobber you', 'thump you', 'wallop you'
             ],
             
-            # Coercive control
+            # Coercive control - PHRASES FIRST
             'coercive_control': [
-                'control', 'controlling', 'must', 'have to', 'must do', 'required', 'demand',
-                'demanding', 'insist', 'insisting', 'force', 'forcing', 'make you', 'made you',
-                'won\'t let', 'not allowed', 'forbidden', 'can\'t', 'not permitted', 'prohibited',
-                'restricted', 'limited', 'isolate', 'isolating', 'cut off', 'cut you off',
-                'separate', 'separating', 'divide', 'dividing', 'alienate', 'alienating',
-                'monitor', 'monitoring', 'track', 'tracking', 'watch', 'watching', 'check',
-                'checking', 'surveillance', 'spy', 'spying', 'follow', 'following', 'stalk',
-                'stalking', 'where are you', 'where were you', 'who were you with', 'why were you',
-                'what did you do', 'explain', 'account for', 'answer for', 'justify',
+                # Control phrases - highest priority
+                'make you', 'made you', 'forcing you', 'forced you', 'make me', 'made me',
+                'won\'t let you', 'not allowed to', 'forbidden to', 'can\'t', 'must do',
+                'have to do', 'required to', 'demand you', 'demanding you', 'insist you', 'insisting you',
+                'cut you off', 'cut me off', 'cut her off', 'isolating you', 'isolated you',
+                'prevent you from', 'preventing you from', 'stop you from', 'stopping you from',
+                'block you from', 'blocking you from', 'not permitted to', 'prohibited from',
+                'restricted from', 'limited to', 'no access to', 'can\'t have', 'can\'t spend',
+                # Surveillance and monitoring phrases
+                'where are you', 'where were you', 'who were you with', 'why were you',
+                'what did you do', 'explain yourself', 'account for yourself', 'answer for yourself',
+                'justify yourself', 'following you', 'stalking you', 'tracking you', 'monitoring you',
+                'watching you', 'checking on you', 'spying on you', 'surveillance on you',
+                # Social isolation phrases
                 'no friends', 'can\'t see', 'not allowed to see', 'stay away from', 'avoid',
                 'don\'t talk to', 'can\'t talk to', 'forbidden to speak', 'not allowed to contact',
-                # Financial control
-                'money', 'bank account', 'credit card', 'no access', 'can\'t have', 'can\'t spend',
-                'control money', 'your money', 'my money', 'our money', 'spend', 'spending',
-                'allowance', 'budget', 'waste', 'wasting', 'squander', 'squandering',
-                # Australian slang
-                'dole', 'centrelink', 'welfare', 'pension', 'benefits', 'no cash', 'broke',
-                'no money', 'skint', 'penniless'
+                'no contact with', 'cut off from', 'separated from', 'alienated from',
+                # Financial control phrases
+                'control your money', 'control the money', 'your money', 'my money', 'our money',
+                'can\'t spend', 'not allowed to spend', 'forbidden to spend', 'no access to money',
+                'no cash', 'no money', 'broke', 'skint', 'penniless', 'spending allowance',
+                'waste money', 'wasting money', 'squander money', 'squandering money'
             ],
             
-            # Emotional/psychological abuse
+            # Emotional/psychological abuse - PHRASES FIRST
             'emotional_abuse': [
-                'stupid', 'idiot', 'moron', 'fool', 'dumb', 'useless', 'worthless', 'pathetic',
-                'weak', 'pathetic', 'loser', 'failure', 'no good', 'good for nothing',
-                'nobody', 'nothing', 'nobody wants you', 'no one likes you', 'everyone hates you',
-                'you\'re nothing', 'you\'re worthless', 'you don\'t matter', 'you\'re replaceable',
-                'insult', 'insulting', 'belittle', 'belittling', 'humiliate', 'humiliating',
-                'embarrass', 'embarrassing', 'shame', 'shaming', 'degrade', 'degrading',
-                'blame', 'blaming', 'fault', 'your fault', 'always your fault', 'everything is your fault',
-                'guilt', 'guilty', 'make you feel guilty', 'guilt trip', 'manipulate', 'manipulating',
-                'gaslight', 'gaslighting', 'that never happened', 'you\'re imagining', 'you\'re crazy',
-                'you\'re mental', 'you\'re insane', 'you\'re delusional', 'not real', 'didn\'t happen',
-                'you\'re wrong', 'you\'re mistaken', 'you don\'t remember', 'you misremembered',
-                'silent treatment', 'ignore', 'ignoring', 'stonewall', 'stonewalling', 'shut down',
-                'withdraw', 'withdrawing', 'cold shoulder', 'punish', 'punishing', 'punishment',
-                # Australian slang
-                'drongo', 'galah', 'dingo', 'dropkick', 'spud', 'spastic', 'retard', 'mongrel',
-                'bastard', 'arsehole', 'dickhead', 'shithead', 'wanker', 'dick', 'prick'
+                # Degrading phrases - highest priority
+                'you\'re stupid', 'you are stupid', 'you\'re an idiot', 'you are an idiot',
+                'you\'re useless', 'you are useless', 'you\'re worthless', 'you are worthless',
+                'you\'re pathetic', 'you are pathetic', 'you\'re a loser', 'you are a loser',
+                'you\'re a failure', 'you are a failure', 'no good', 'good for nothing',
+                'nobody wants you', 'no one likes you', 'everyone hates you',
+                'you\'re nothing', 'you are nothing', 'you\'re worthless', 'you are worthless',
+                'you don\'t matter', 'you\'re replaceable', 'you are replaceable',
+                # Blame and guilt phrases
+                'your fault', 'always your fault', 'everything is your fault', 'all your fault',
+                'make you feel guilty', 'guilt trip', 'guilt you', 'guilting you',
+                # Gaslighting phrases
+                'that never happened', 'you\'re imagining', 'you are imagining', 'you\'re crazy',
+                'you are crazy', 'you\'re mental', 'you are mental', 'you\'re insane', 'you are insane',
+                'you\'re delusional', 'you are delusional', 'not real', 'didn\'t happen',
+                'you\'re wrong', 'you are wrong', 'you\'re mistaken', 'you are mistaken',
+                'you don\'t remember', 'you misremembered', 'that\'s not what happened',
+                # Manipulation and control phrases
+                'silent treatment', 'ignoring you', 'stonewalling you', 'shut you down',
+                'withdrawing from you', 'cold shoulder', 'punishing you', 'punishment for you',
+                # Australian degrading phrases
+                'you\'re a drongo', 'you\'re a galah', 'you\'re a dropkick', 'you\'re a mongrel',
+                'you\'re a bastard', 'you\'re an arsehole', 'you\'re a dickhead', 'you\'re a shithead',
+                'you\'re a wanker', 'you\'re a dick', 'you\'re a prick'
             ],
             
-            # Evidence tampering
+            # Evidence tampering - PHRASES FIRST
             'evidence_tampering': [
-                'delete', 'deleting', 'erase', 'erasing', 'remove', 'removing', 'destroy',
-                'destroying', 'get rid of', 'throw away', 'discard', 'discarding', 'eliminate',
-                'eliminating', 'wipe', 'wiping', 'clear', 'clearing', 'clean', 'cleaning',
-                'remove evidence', 'delete evidence', 'destroy evidence', 'get rid of evidence',
+                # Evidence destruction phrases - highest priority
+                'delete evidence', 'destroy evidence', 'remove evidence', 'get rid of evidence',
+                'erase evidence', 'wipe evidence', 'clear evidence', 'eliminate evidence',
+                'delete the evidence', 'destroy the evidence', 'remove the evidence',
+                'delete that evidence', 'destroy that evidence', 'remove that evidence',
+                # No evidence phrases
                 'no evidence', 'no proof', 'can\'t prove', 'nothing to prove', 'no one will believe',
-                'no witnesses', 'no one saw', 'no one knows', 'nobody knows', 'secret', 'keep secret',
-                'don\'t tell', 'can\'t tell', 'mustn\'t tell', 'forbidden to tell', 'not allowed to say',
-                'cover up', 'covering up', 'hide', 'hiding', 'conceal', 'concealing', 'suppress',
-                'suppressing', 'bury', 'burying', 'sweep under', 'under the rug', 'forget',
-                'make forget', 'pretend', 'pretending', 'act like', 'play dumb', 'act innocent',
-                'records', 'recordings', 'audio', 'video', 'photos', 'pictures', 'messages',
-                'texts', 'emails', 'calls', 'call log', 'phone records', 'delete messages',
-                'clear messages', 'remove messages', 'delete photos', 'remove photos',
-                'delete recordings', 'remove recordings', 'delete video', 'remove video'
+                'no witnesses', 'no one saw', 'no one knows', 'nobody knows',
+                # Secrecy and cover-up phrases
+                'keep secret', 'keep it secret', 'don\'t tell', 'can\'t tell', 'mustn\'t tell',
+                'forbidden to tell', 'not allowed to say', 'cover up', 'covering up',
+                'hide the evidence', 'hide evidence', 'conceal evidence', 'concealing evidence',
+                'suppress evidence', 'suppressing evidence', 'bury the evidence', 'burying evidence',
+                'sweep under the rug', 'under the rug', 'make forget', 'pretend it didn\'t happen',
+                'act like nothing happened', 'play dumb', 'act innocent',
+                # Digital evidence tampering phrases
+                'delete messages', 'delete the messages', 'clear messages', 'clear the messages',
+                'remove messages', 'remove the messages', 'delete photos', 'delete the photos',
+                'remove photos', 'remove the photos', 'delete recordings', 'delete the recordings',
+                'remove recordings', 'remove the recordings', 'delete video', 'delete the video',
+                'remove video', 'remove the video', 'delete call log', 'clear call log',
+                'delete phone records', 'clear phone records',
+                # Contextual words (useful for indicating evidence discussions)
+                'evidence', 'proof', 'witnesses', 'witness', 'recording', 'recordings'
             ],
             
-            # Police investigation references
+            # Police investigation references - PHRASES AND CONTEXTUAL WORDS
             'police_investigation': [
-                'police', 'copper', 'cop', 'cops', 'officer', 'officers', 'detective', 'detectives',
-                'investigation', 'investigating', 'investigate', 'inquiry', 'enquiring', 'enquire',
-                'statement', 'statements', 'give statement', 'make statement', 'written statement',
-                'witness', 'witnesses', 'testify', 'testifying', 'testimony', 'court', 'courts',
-                'charges', 'charged', 'arrest', 'arrested', 'arresting', 'warrant', 'warrants',
-                'search', 'searching', 'search warrant', 'raid', 'raiding', 'seize', 'seizing',
-                'seizure', 'evidence', 'proof', 'proof of', 'prove', 'proving', 'proven',
-                'body worn', 'body worn camera', 'bwc', 'body camera', 'bodycam', 'dash cam',
-                'dashcam', 'cctv', 'security camera', 'surveillance', 'surveillance footage',
-                'recording', 'recordings', 'audio recording', 'video recording', 'phone recording',
-                'call recording', 'recorded', 'taped', 'taping', 'wiretap', 'wiretapping',
-                'subpoena', 'subpoenas', 'summons', 'witness statement', 'deposition',
-                # Australian police terms
-                'afp', 'australian federal police', 'state police', 'local police', 'station',
-                'police station', 'precinct', 'detective branch', 'cib', 'criminal investigation',
-                'domestic violence unit', 'dvu', 'family violence', 'avlo', 'apprehended violence order',
-                'avo', 'intervention order', 'protection order', 'restraining order', 'dvo',
-                'domestic violence order', 'breach', 'breaching', 'breached', 'violation',
-                'violating', 'violated'
+                # Police investigation phrases - highest priority
+                'police investigation', 'police are investigating', 'police investigating',
+                'police inquiry', 'police enquiry', 'police are looking into',
+                'give statement to police', 'make statement to police', 'written statement to police',
+                'statement for police', 'police statement', 'give police statement',
+                'police witness', 'witness for police', 'testify against', 'testify for police',
+                'police charges', 'charged by police', 'police arrest', 'arrested by police',
+                'police warrant', 'search warrant', 'police search', 'police raid',
+                'police evidence', 'evidence for police', 'police proof', 'prove to police',
+                # Body worn camera and recording phrases
+                'body worn camera', 'body worn', 'body camera', 'bodycam', 'bwc',
+                'police recording', 'police audio', 'police video', 'police footage',
+                'recorded by police', 'police wiretap', 'police surveillance',
+                # Court and legal phrases
+                'police court', 'court case', 'court order', 'police subpoena',
+                'witness statement for police', 'police deposition',
+                # Statement-related phrases
+                'give statement', 'make statement', 'written statement', 'formal statement',
+                'police statement', 'court statement', 'witness statement', 'official statement',
+                'statement about', 'statement regarding', 'statement concerning',
+                # Lawyer/legal representation phrases
+                'talk to lawyer', 'speak to lawyer', 'meet with lawyer', 'see lawyer',
+                'contact lawyer', 'call lawyer', 'lawyer said', 'lawyer told',
+                'my lawyer', 'your lawyer', 'get a lawyer', 'hire lawyer',
+                'legal representation', 'legal counsel', 'attorney', 'solicitor',
+                # Australian police terms - phrases only
+                'domestic violence unit', 'dvu', 'family violence unit',
+                'apprehended violence order', 'avo', 'intervention order',
+                'protection order', 'restraining order', 'domestic violence order', 'dvo',
+                'breach of avo', 'breaching avo', 'breached avo', 'violation of order',
+                # Threats about police
+                'don\'t call police', 'can\'t call police', 'mustn\'t call police',
+                'not allowed to call police', 'forbidden to call police',
+                'no police', 'keep police out', 'leave police out', 'don\'t involve police',
+                # Contextual single words (lower priority but useful indicators)
+                'statement', 'statements', 'police', 'lawyer', 'lawyers', 'attorney',
+                'solicitor', 'court', 'courts', 'witness', 'testimony', 'charges',
+                'arrest', 'warrant', 'evidence', 'investigation', 'detective', 'officer'
             ],
             
-            # Withdrawal of complaints / non-cooperation
+            # Withdrawal of complaints / non-cooperation - PHRASES ONLY
             'withdrawal_non_cooperation': [
-                'withdraw', 'withdrawing', 'withdrawn', 'withdrawal', 'drop', 'dropping', 'dropped',
+                # Withdrawal phrases - highest priority
                 'drop charges', 'withdraw charges', 'withdraw complaint', 'drop complaint',
-                'cancel', 'cancelling', 'cancelled', 'retract', 'retracting', 'retracted',
-                'recant', 'recanting', 'recanted', 'take back', 'taking back', 'took back',
+                'withdraw the charges', 'drop the charges', 'withdraw the complaint', 'drop the complaint',
+                'take back the complaint', 'taking back the complaint', 'took back the complaint',
+                'cancel the charges', 'cancelling the charges', 'cancelled the charges',
+                'retract the complaint', 'retracting the complaint', 'retracted the complaint',
+                'recant the statement', 'recanting the statement', 'recanted the statement',
+                # Story change phrases
                 'change story', 'changing story', 'changed story', 'different story', 'new story',
+                'change the story', 'changing the story', 'changed the story',
+                'tell different story', 'tell differently', 'say different story', 'say differently',
                 'not true', 'wasn\'t true', 'not real', 'didn\'t happen', 'never happened',
-                'made up', 'lie', 'lied', 'lying', 'false', 'false statement', 'false complaint',
-                'mistake', 'mistaken', 'wrong', 'wrong about', 'regret', 'regretting', 'sorry',
-                'apologize', 'apologizing', 'apologised', 'forgive', 'forgiving', 'forgave',
-                'forget', 'forgetting', 'forgot', 'move on', 'moving on', 'let it go', 'let\'s forget',
-                'don\'t want', 'don\'t want to', 'don\'t want charges', 'don\'t want to press charges',
-                'don\'t want to go to court', 'don\'t want police', 'don\'t want cops',
-                'leave police out', 'keep police out', 'no police', 'not involving police',
-                'don\'t involve police', 'can\'t involve police', 'mustn\'t involve police',
-                'not cooperate', 'not cooperating', 'won\'t cooperate', 'refuse', 'refusing',
-                'refused', 'refusal', 'won\'t help', 'can\'t help', 'not helping', 'no help',
-                'don\'t help police', 'won\'t assist', 'not assisting', 'refuse to assist',
-                'refuse to help', 'refuse to cooperate', 'won\'t testify', 'refuse to testify',
-                'not testifying', 'won\'t give statement', 'refuse to give statement',
-                'won\'t make statement', 'refuse to make statement', 'keep quiet', 'stay quiet',
-                'say nothing', 'don\'t say anything', 'can\'t say', 'mustn\'t say', 'not allowed to say',
-                # Australian slang
-                'dob', 'dob in', 'dobbed', 'dobbin\'', 'snitch', 'snitching', 'snitched',
-                'tell on', 'telling on', 'told on', 'grass', 'grassing', 'grassed', 'rat',
-                'ratting', 'ratted', 'don\'t dob', 'don\'t snitch', 'don\'t tell', 'keep mouth shut'
+                'made up', 'false statement', 'false complaint', 'wrong about',
+                # Non-cooperation phrases
+                'don\'t want charges', 'don\'t want to press charges', 'don\'t want to go to court',
+                'don\'t want police', 'don\'t want cops', 'leave police out', 'keep police out',
+                'no police', 'not involving police', 'don\'t involve police', 'can\'t involve police',
+                'mustn\'t involve police', 'not cooperate', 'not cooperating', 'won\'t cooperate',
+                'refuse to cooperate', 'won\'t help police', 'can\'t help police', 'don\'t help police',
+                'won\'t assist police', 'not assisting police', 'refuse to assist', 'refuse to help',
+                'refuse to cooperate', 'won\'t testify', 'refuse to testify', 'not testifying',
+                'won\'t give statement', 'refuse to give statement', 'won\'t make statement',
+                'refuse to make statement', 'keep quiet', 'stay quiet', 'say nothing',
+                'don\'t say anything', 'can\'t say', 'mustn\'t say', 'not allowed to say',
+                # Australian slang phrases
+                'don\'t dob', 'don\'t dob in', 'don\'t snitch', 'don\'t tell', 'keep mouth shut',
+                'don\'t tell on', 'don\'t grass', 'don\'t rat'
             ],
             
-            # Version change / story manipulation
+            # Version change / story manipulation - PHRASES ONLY
             'version_change': [
+                # Story manipulation phrases - highest priority
                 'change story', 'changing story', 'changed story', 'different story', 'new story',
-                'tell different', 'tell differently', 'say different', 'say differently',
+                'change the story', 'changing the story', 'changed the story',
+                'tell different story', 'tell differently', 'say different story', 'say differently',
                 'alternative version', 'different version', 'other version', 'another version',
-                'tell police', 'tell cops', 'say to police', 'say to cops', 'what to say',
-                'what to tell', 'how to say', 'how to tell', 'script', 'scripted', 'rehearse',
-                'rehearsing', 'practice', 'practicing', 'practice story', 'rehearse story',
-                'memorize', 'memorizing', 'remember to say', 'don\'t forget to say',
-                'make sure you say', 'be sure to say', 'important to say', 'must say',
-                'have to say', 'need to say', 'should say', 'better say', 'better tell',
-                'tell them', 'say this', 'not that', 'don\'t say that', 'can\'t say that',
-                'mustn\'t say that', 'wrong thing', 'right thing', 'correct thing', 'proper thing',
-                'right way', 'wrong way', 'correct way', 'proper way', 'how it should be',
-                'how it must be', 'how it has to be', 'how it needs to be', 'how it\'s supposed to be',
-                'stick to', 'stick to the story', 'stick to script', 'follow script', 'follow story',
-                'don\'t deviate', 'don\'t change', 'don\'t add', 'don\'t mention', 'don\'t bring up',
-                'don\'t talk about', 'avoid', 'avoiding', 'skip', 'skipping', 'leave out', 'leaving out',
-                'omit', 'omitting', 'forget', 'forgetting', 'don\'t remember', 'act like you don\'t remember',
-                'pretend', 'pretending', 'act', 'acting', 'play', 'playing', 'fake', 'faking',
-                'lie', 'lying', 'not true', 'untrue', 'false', 'fabricate', 'fabricating',
-                'invent', 'inventing', 'make up', 'making up', 'made up', 'concoct', 'concocting',
-                'story', 'stories', 'version', 'versions', 'account', 'accounts', 'narrative',
-                'narratives', 'tale', 'tales', 'explanation', 'explanations', 'description',
-                'descriptions', 'report', 'reports', 'statement', 'statements', 'testimony',
-                'testimonies', 'evidence', 'proof', 'alibi', 'alibis', 'excuse', 'excuses',
-                'cover story', 'cover-up', 'cover up', 'smoke screen', 'distraction', 'deflection'
+                'tell police', 'tell cops', 'say to police', 'say to cops',
+                'what to say', 'what to tell police', 'what to tell cops', 'how to say',
+                'how to tell', 'how to tell police', 'how to say to police',
+                'practice story', 'rehearse story', 'practice the story', 'rehearse the story',
+                'remember to say', 'don\'t forget to say', 'make sure you say', 'be sure to say',
+                'important to say', 'must say', 'have to say', 'need to say', 'should say',
+                'better say', 'better tell', 'tell them', 'say this', 'not that',
+                'don\'t say that', 'can\'t say that', 'mustn\'t say that',
+                'wrong thing to say', 'right thing to say', 'correct thing to say', 'proper thing to say',
+                'right way to say', 'wrong way to say', 'correct way to say', 'proper way to say',
+                'how it should be', 'how it must be', 'how it has to be', 'how it needs to be',
+                'how it\'s supposed to be', 'stick to the story', 'stick to script', 'follow script',
+                'follow story', 'don\'t deviate', 'don\'t change the story', 'don\'t add to the story',
+                'don\'t mention', 'don\'t bring up', 'don\'t talk about', 'avoid saying', 'skip that',
+                'leave out', 'leaving out', 'act like you don\'t remember', 'pretend you don\'t remember',
+                'pretend it didn\'t happen', 'act like nothing happened', 'play dumb', 'act innocent',
+                'not true', 'untrue', 'false statement', 'fabricate story', 'fabricating story',
+                'invent story', 'inventing story', 'make up story', 'making up story', 'concoct story',
+                'cover story', 'cover-up', 'cover up', 'smoke screen'
             ],
             
-            # Sexual abuse / coercion
+            # Sexual abuse / coercion - PHRASES FIRST
             'sexual_abuse': [
-                'rape', 'raping', 'raped', 'sexual assault', 'assaulted', 'assaulting',
-                'force', 'forcing', 'forced', 'make you', 'made you', 'coerce', 'coercing',
-                'coerced', 'pressure', 'pressuring', 'pressured', 'convince', 'convincing',
-                'convinced', 'persuade', 'persuading', 'persuaded', 'talk into', 'talked into',
-                'no choice', 'no option', 'must do', 'have to do', 'required to do',
-                'owe', 'owing', 'owed', 'you owe me', 'owe me', 'debt', 'payback', 'repayment',
-                'right', 'my right', 'entitled', 'entitlement', 'deserve', 'deserving', 'owed this',
-                'deserve this', 'entitled to this', 'right to this', 'my right to',
-                'duty', 'your duty', 'obligation', 'your obligation', 'responsibility', 'your responsibility',
-                'sex', 'sexual', 'intercourse', 'oral', 'anal', 'penetration', 'penetrating',
-                'touch', 'touching', 'touched', 'fondle', 'fondling', 'fondled', 'grope',
-                'groping', 'groped', 'molest', 'molesting', 'molested', 'abuse', 'abusing',
-                'abused', 'violate', 'violating', 'violated', 'violation', 'exploit', 'exploiting',
-                'exploited', 'exploitation', 'use', 'using', 'used', 'object', 'objectify',
-                'objectifying', 'objectified', 'property', 'my property', 'belongs to me',
-                'mine', 'own', 'owning', 'owned', 'possess', 'possessing', 'possessed',
-                'possession', 'control', 'controlling', 'controlled'
+                # Sexual assault phrases - highest priority
+                'sexual assault', 'sexually assaulted', 'sexually assaulting', 'force you', 'forced you',
+                'make you', 'made you', 'coerce you', 'coercing you', 'coerced you',
+                'pressure you', 'pressuring you', 'pressured you', 'force me', 'forced me',
+                'make me', 'made me', 'no choice', 'no option', 'must do', 'have to do',
+                'required to do', 'you owe me', 'owe me', 'you owe', 'debt', 'payback',
+                'my right', 'entitled to', 'deserve this', 'entitled to this', 'right to this',
+                'my right to', 'your duty', 'your obligation', 'your responsibility',
+                # Sexual coercion phrases
+                'force sex', 'forced sex', 'forcing sex', 'make you have sex', 'made you have sex',
+                'coerce into sex', 'coercing into sex', 'pressured into sex', 'pressure into sex',
+                'no choice but to', 'no option but to', 'must have sex', 'have to have sex',
+                'required to have sex', 'owe me sex', 'you owe me sex', 'my right to sex',
+                'entitled to sex', 'deserve sex', 'your duty to have sex', 'your obligation',
+                # Physical sexual abuse phrases
+                'touch you', 'touching you', 'touched you', 'fondle you', 'fondling you',
+                'fondled you', 'grope you', 'groping you', 'groped you', 'molest you',
+                'molesting you', 'molested you', 'abuse you', 'abusing you', 'abused you',
+                'violate you', 'violating you', 'violated you', 'exploit you', 'exploiting you',
+                'exploited you', 'use you', 'using you', 'used you',
+                # Objectification phrases
+                'my property', 'belongs to me', 'mine', 'own you', 'owning you', 'owned you',
+                'possess you', 'possessing you', 'possessed you', 'control you', 'controlling you',
+                'controlled you', 'objectify you', 'objectifying you', 'objectified you',
+                # Only most severe single words (context-dependent)
+                'rape', 'raping', 'raped'
             ],
             
-            # Isolation / social control
+            # Isolation / social control - PHRASES ONLY
             'isolation': [
-                'isolate', 'isolating', 'isolated', 'isolation', 'separate', 'separating',
-                'separated', 'separation', 'cut off', 'cutting off', 'cut you off', 'cut them off',
-                'divide', 'dividing', 'divided', 'division', 'alienate', 'alienating', 'alienated',
-                'alienation', 'distance', 'distancing', 'distanced', 'remove', 'removing', 'removed',
-                'removal', 'prevent', 'preventing', 'prevented', 'prevention', 'stop', 'stopping',
-                'stopped', 'block', 'blocking', 'blocked', 'bar', 'barring', 'barred', 'ban',
-                'banning', 'banned', 'prohibit', 'prohibiting', 'prohibited', 'prohibition',
-                'forbid', 'forbidding', 'forbidden', 'not allowed', 'can\'t', 'mustn\'t',
-                'forbidden to', 'not permitted', 'not permitted to', 'prohibited from',
-                'no contact', 'can\'t contact', 'mustn\'t contact', 'not allowed to contact',
-                'don\'t contact', 'stop contacting', 'stop talking to', 'don\'t talk to',
-                'can\'t talk to', 'mustn\'t talk to', 'not allowed to talk', 'forbidden to talk',
-                'no friends', 'can\'t have friends', 'not allowed friends', 'forbidden friends',
-                'no family', 'can\'t see family', 'not allowed to see family', 'forbidden family',
-                'stay away from', 'keep away from', 'avoid', 'avoiding', 'avoided', 'shun',
-                'shunning', 'shunned', 'ignore', 'ignoring', 'ignored', 'cut out', 'cutting out',
-                'locked in', 'locked out', 'trapped', 'stuck', 'no escape', 'nowhere to go',
-                'nowhere to turn', 'no one to turn to', 'no support', 'no help', 'alone',
-                'lonely', 'isolated', 'cut off from everyone', 'cut off from world', 'separated from',
-                'divided from', 'alienated from', 'removed from', 'prevented from', 'stopped from',
-                'blocked from', 'barred from', 'banned from', 'prohibited from', 'forbidden from'
+                # Isolation phrases - highest priority
+                'cut you off', 'cut them off', 'cut me off', 'isolating you', 'isolated you',
+                'separated you from', 'divided you from', 'alienated you from', 'removed you from',
+                'prevent you from', 'preventing you from', 'stop you from', 'stopping you from',
+                'block you from', 'blocking you from', 'bar you from', 'barring you from',
+                'ban you from', 'banning you from', 'prohibit you from', 'prohibiting you from',
+                'forbid you from', 'forbidding you from', 'not allowed to', 'forbidden to',
+                'not permitted to', 'prohibited from', 'no contact', 'can\'t contact',
+                'mustn\'t contact', 'not allowed to contact', 'don\'t contact', 'stop contacting',
+                'stop talking to', 'don\'t talk to', 'can\'t talk to', 'mustn\'t talk to',
+                'not allowed to talk', 'forbidden to talk', 'no friends', 'can\'t have friends',
+                'not allowed friends', 'forbidden friends', 'no family', 'can\'t see family',
+                'not allowed to see family', 'forbidden family', 'stay away from', 'keep away from',
+                'cut out', 'cutting out', 'locked in', 'locked out', 'trapped', 'stuck',
+                'no escape', 'nowhere to go', 'nowhere to turn', 'no one to turn to',
+                'no support', 'no help', 'cut off from everyone', 'cut off from world',
+                'separated from', 'divided from', 'alienated from', 'removed from',
+                'prevented from', 'stopped from', 'blocked from', 'barred from',
+                'banned from', 'prohibited from', 'forbidden from'
             ],
             
-            # Stalking / monitoring
+            # Stalking / monitoring - PHRASES ONLY
             'stalking_monitoring': [
-                'stalk', 'stalking', 'stalked', 'stalking', 'follow', 'following', 'followed',
-                'track', 'tracking', 'tracked', 'trace', 'tracing', 'traced', 'monitor', 'monitoring',
-                'monitored', 'surveillance', 'watch', 'watching', 'watched', 'observe', 'observing',
-                'observed', 'spy', 'spying', 'spied', 'check', 'checking', 'checked', 'keep tabs',
-                'keeping tabs', 'kept tabs', 'track down', 'tracking down', 'tracked down',
-                'find', 'finding', 'found', 'locate', 'locating', 'located', 'pinpoint', 'pinpointing',
-                'pinpointed', 'hunt', 'hunting', 'hunted', 'pursue', 'pursuing', 'pursued',
-                'chase', 'chasing', 'chased', 'trail', 'trailing', 'trailed', 'shadow', 'shadowing',
-                'shadowed', 'tail', 'tailing', 'tailed', 'where are you', 'where were you',
-                'where did you go', 'where are you going', 'where have you been', 'what are you doing',
-                'what did you do', 'who were you with', 'who are you with', 'why were you there',
-                'why did you go', 'explain', 'explaining', 'explained', 'account for', 'accounting for',
-                'accounted for', 'answer for', 'answering for', 'answered for', 'justify', 'justifying',
-                'justified', 'explain yourself', 'account for yourself', 'answer for yourself',
-                'phone tracking', 'gps tracking', 'location tracking', 'phone location', 'find my phone',
-                'where is your phone', 'check phone', 'checking phone', 'checked phone', 'look at phone',
-                'looking at phone', 'looked at phone', 'read messages', 'reading messages', 'read texts',
-                'reading texts', 'check messages', 'checking messages', 'checked messages', 'check texts',
-                'checking texts', 'checked texts', 'go through phone', 'going through phone',
-                'went through phone', 'search phone', 'searching phone', 'searched phone',
-                'social media', 'facebook', 'instagram', 'twitter', 'snapchat', 'whatsapp',
+                # Stalking phrases - highest priority
+                'stalking you', 'stalked you', 'following you', 'followed you', 'tracking you',
+                'tracked you', 'monitoring you', 'monitored you', 'watching you', 'watched you',
+                'spying on you', 'spied on you', 'checking on you', 'checked on you',
+                'keep tabs on you', 'keeping tabs on you', 'kept tabs on you',
+                'track you down', 'tracking you down', 'tracked you down', 'find you',
+                'finding you', 'found you', 'locate you', 'locating you', 'located you',
+                'hunt you down', 'hunting you down', 'hunted you down', 'pursue you',
+                'pursuing you', 'pursued you', 'chase you', 'chasing you', 'chased you',
+                'trail you', 'trailing you', 'trailed you', 'shadow you', 'shadowing you',
+                'shadowed you', 'tail you', 'tailing you', 'tailed you',
+                # Interrogation phrases
+                'where are you', 'where were you', 'where did you go', 'where are you going',
+                'where have you been', 'what are you doing', 'what did you do',
+                'who were you with', 'who are you with', 'why were you there', 'why did you go',
+                'explain yourself', 'account for yourself', 'answer for yourself',
+                # Phone monitoring phrases
+                'phone tracking', 'gps tracking', 'location tracking', 'phone location',
+                'find my phone', 'where is your phone', 'check your phone', 'checking your phone',
+                'checked your phone', 'look at your phone', 'looking at your phone',
+                'looked at your phone', 'read your messages', 'reading your messages',
+                'read your texts', 'reading your texts', 'check your messages',
+                'checking your messages', 'checked your messages', 'check your texts',
+                'checking your texts', 'checked your texts', 'go through your phone',
+                'going through your phone', 'went through your phone', 'search your phone',
+                'searching your phone', 'searched your phone',
+                # Social media monitoring phrases
                 'check social media', 'checking social media', 'checked social media',
-                'who are you talking to', 'who did you talk to', 'who are you messaging',
-                'who did you message', 'who are you texting', 'who did you text'
+                'check your facebook', 'checking your facebook', 'check your instagram',
+                'checking your instagram', 'who are you talking to', 'who did you talk to',
+                'who are you messaging', 'who did you message', 'who are you texting',
+                'who did you text'
             ],
             
-            # Pregnancy and child harm
+            # Pregnancy and child harm - PHRASES ONLY (remove innocent single words)
             'pregnancy_child_harm': [
-                # Pregnancy terms
-                'pregnant', 'pregnancy', 'unborn', 'fetus', 'foetus', 'baby', 'babies', 'expecting',
-                'expectant', 'carrying', 'gestation', 'gestational', 'maternity', 'maternal', 'prenatal',
-                'antenatal', 'obstetric', 'obstetrics', 'midwife', 'midwifery', 'ultrasound', 'scan',
-                # Child terms
-                'child', 'children', 'kid', 'kids', 'infant', 'infants', 'toddler', 'toddlers',
-                'newborn', 'newborns', 'baby', 'babies', 'minor', 'minors', 'offspring', 'son', 'sons',
-                'daughter', 'daughters', 'boy', 'boys', 'girl', 'girls', 'custody', 'custodial',
-                # Threats to pregnancy
+                # Remove all innocent single words - only keep threatening phrases
+                # Threats to pregnancy - phrases only
                 'hurt the pregnancy', 'harm the pregnancy', 'damage the pregnancy', 'end the pregnancy',
                 'terminate the pregnancy', 'lose the pregnancy', 'kill the pregnancy', 'get rid of the pregnancy',
                 'hurt the unborn', 'harm the unborn', 'damage the unborn', 'kill the unborn', 'hurt the fetus',
                 'harm the fetus', 'damage the fetus', 'kill the fetus', 'hurt the baby', 'harm the baby',
-                'kill the baby', 'lose the baby', 'miscarry', 'miscarriage', 'miscarrying', 'cause miscarriage',
-                'make you miscarry', 'force miscarriage', 'abort', 'abortion', 'aborting', 'force abortion',
-                'make you abort', 'terminate', 'termination', 'terminating', 'force termination',
+                'kill the baby', 'lose the baby', 'cause miscarriage', 'make you miscarry', 'force miscarriage',
+                'force abortion', 'make you abort', 'force termination',
                 'hurt while pregnant', 'harm while pregnant', 'hit while pregnant', 'punch while pregnant',
                 'kick while pregnant', 'beat while pregnant', 'hurt when pregnant', 'harm when pregnant',
                 'hit when pregnant', 'punch when pregnant', 'kick when pregnant', 'beat when pregnant',
@@ -316,7 +388,7 @@ class DVWordListAnalyzer:
                 'you\'ll have a miscarriage', 'you won\'t have it', 'you won\'t have the baby',
                 'you won\'t have this baby', 'not having it', 'not having the baby', 'not keeping it',
                 'not keeping the baby', 'get rid of it', 'get rid of the baby', 'get rid of the pregnancy',
-                # Threats to children
+                # Threats to children - phrases only
                 'hurt the child', 'harm the child', 'kill the child', 'hurt your child', 'harm your child',
                 'kill your child', 'hurt the children', 'harm the children', 'kill the children',
                 'hurt your children', 'harm your children', 'kill your children', 'hurt the kids',
@@ -330,9 +402,8 @@ class DVWordListAnalyzer:
                 'forbidden to visit', 'can\'t see them', 'can\'t see the kids', 'can\'t see your kids',
                 'can\'t see the children', 'can\'t see your children', 'no contact', 'no contact with',
                 'no contact with kids', 'no contact with children', 'no access', 'no access to',
-                'no access to kids', 'no access to children', 'supervised visits', 'supervised contact',
-                'restricted access', 'limited access', 'court order', 'restraining order against',
-                # Physical harm to children
+                'no access to kids', 'no access to children',
+                # Physical harm to children - phrases only
                 'hit the child', 'hit your child', 'punch the child', 'punch your child',
                 'kick the child', 'kick your child', 'beat the child', 'beat your child',
                 'bash the child', 'bash your child', 'hit the kids', 'hit your kids',
@@ -343,18 +414,12 @@ class DVWordListAnalyzer:
                 'bash the children', 'bash your children', 'hit the baby', 'hit your baby',
                 'punch the baby', 'punch your baby', 'kick the baby', 'kick your baby',
                 'beat the baby', 'beat your baby', 'bash the baby', 'bash your baby',
-                # Coercive control using children
+                # Coercive control using children - phrases only
                 'using the kids', 'using the children', 'using the child', 'using the baby',
                 'through the kids', 'through the children', 'through the child', 'through the baby',
                 'using custody', 'threaten custody', 'threatening custody', 'custody battle',
                 'custody fight', 'fight for custody', 'take custody', 'get custody', 'win custody',
-                'lose custody', 'full custody', 'sole custody', 'shared custody', 'joint custody',
-                'visitation', 'visitation rights', 'access rights', 'parenting time', 'contact order',
-                # Australian terms
-                'dca', 'department of child safety', 'child safety', 'cps', 'child protection',
-                'child protection services', 'dcs', 'facs', 'family and community services',
-                'documents', 'dhs', 'department of human services', 'centrelink', 'child support',
-                'child support agency', 'csa', 'maintenance', 'child maintenance'
+                'lose custody', 'threaten to take custody', 'threatening to take custody'
             ]
         }
     
@@ -387,6 +452,7 @@ class DVWordListAnalyzer:
     def analyze_transcription(self, transcription_text: str, filename: str) -> Dict[str, Any]:
         """
         Analyze a single transcription for DV indicators.
+        Prioritizes phrases over single words to reduce false positives.
         
         Args:
             transcription_text: The full transcription text
@@ -414,16 +480,61 @@ class DVWordListAnalyzer:
         total_score = 0.0
         match_count = 0
         
-        for category, words in self.word_categories.items():
+        # Track matched positions to avoid double-counting
+        matched_positions = set()
+        
+        for category, word_list in self.word_categories.items():
             category_matches = []
             category_score = 0.0
             
-            for word in words:
+            # Separate phrases (multi-word) from single words
+            phrases = [w for w in word_list if ' ' in w or len(w.split()) > 1]
+            single_words = [w for w in word_list if w not in phrases]
+            
+            # Process phrases FIRST (higher priority)
+            for phrase in phrases:
+                # Use word boundaries for phrase matching
+                escaped_phrase = re.escape(phrase.lower())
+                pattern = r'\b' + escaped_phrase + r'\b'
+                found_matches = re.finditer(pattern, text_lower, re.IGNORECASE)
+                
+                for match in found_matches:
+                    # Check if this position overlaps with already matched text
+                    match_range = range(match.start(), match.end())
+                    if any(pos in matched_positions for pos in match_range):
+                        continue  # Skip if already matched
+                    
+                    # Mark positions as matched
+                    matched_positions.update(match_range)
+                    
+                    # Get context around the match
+                    start = max(0, match.start() - 50)
+                    end = min(len(transcription_text), match.end() + 50)
+                    context = transcription_text[start:end].strip()
+                    
+                    category_matches.append({
+                        'word': phrase,
+                        'position': match.start(),
+                        'context': context,
+                        'is_phrase': True
+                    })
+                    
+                    # Phrases get 10x weight multiplier
+                    weight = self.category_weights.get(category, 1.0) * 10.0
+                    category_score += weight
+                    match_count += 1
+            
+            # Process single words SECOND (lower priority, only if not already matched)
+            for word in single_words:
                 # Use word boundaries for exact word matching
                 pattern = r'\b' + re.escape(word.lower()) + r'\b'
                 found_matches = re.finditer(pattern, text_lower, re.IGNORECASE)
                 
                 for match in found_matches:
+                    # Skip if this position is already covered by a phrase match
+                    if match.start() in matched_positions:
+                        continue
+                    
                     # Get context around the match
                     start = max(0, match.start() - 30)
                     end = min(len(transcription_text), match.end() + 30)
@@ -432,32 +543,38 @@ class DVWordListAnalyzer:
                     category_matches.append({
                         'word': word,
                         'position': match.start(),
-                        'context': context
+                        'context': context,
+                        'is_phrase': False
                     })
                     
-                    # Add score based on category weight
+                    # Single words get base weight (no multiplier)
                     weight = self.category_weights.get(category, 1.0)
                     category_score += weight
                     match_count += 1
+                    # Mark position (but don't block single word matches if they're different words)
+                    matched_positions.add(match.start())
             
             if category_matches:
                 category_scores[category] = category_score
                 matches[category] = category_matches
                 total_score += category_score
         
-        # Get top matches (sorted by category weight)
+        # Get top matches (sorted by actual score contribution)
         top_matches = []
         for category, category_matches in matches.items():
-            weight = self.category_weights.get(category, 1.0)
+            base_weight = self.category_weights.get(category, 1.0)
             for match in category_matches:
+                # Calculate actual weight (phrases get 10x multiplier)
+                actual_weight = base_weight * (10.0 if match.get('is_phrase', False) else 1.0)
                 top_matches.append({
                     'category': category,
                     'word': match['word'],
                     'context': match['context'],
-                    'weight': weight
+                    'weight': actual_weight,
+                    'is_phrase': match.get('is_phrase', False)
                 })
         
-        # Sort by weight (descending)
+        # Sort by actual weight (descending) - phrases will rank much higher
         top_matches.sort(key=lambda x: x['weight'], reverse=True)
         
         return {
