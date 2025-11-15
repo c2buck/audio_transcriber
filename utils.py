@@ -4,7 +4,7 @@ import time
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable
 
 
 def format_time(seconds: float) -> str:
@@ -959,7 +959,8 @@ def escape_html(text: str) -> str:
 
 def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str, 
                       total_time: float, success_count: int, failure_count: int,
-                      dv_analysis: Optional[Dict[str, Any]] = None) -> str:
+                      dv_analysis: Optional[Dict[str, Any]] = None,
+                      progress_callback: Optional[Callable[[str, int], None]] = None) -> str:
     """
     Create an HTML report with all transcriptions, enhanced hyperlinks, and timestamped segments.
     
@@ -970,8 +971,16 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         success_count: Number of successful transcriptions
         failure_count: Number of failed transcriptions
         dv_analysis: Optional DV analysis results for keyword highlighting and TOC
+        progress_callback: Optional callback function(message, percentage) for progress updates
     """
     # Note: Audio files are not copied here - they will be copied only when creating the zip package
+    
+    def _progress(message: str, percentage: int):
+        """Helper to call progress callback with message and percentage."""
+        if progress_callback:
+            progress_callback(message, percentage)
+    
+    _progress("Compiling transcription data...", 0)
     
     # Get category weights from DV analyzer if available
     category_weights = None
@@ -988,6 +997,8 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
     if dv_analysis and 'analyses' in dv_analysis:
         for analysis in dv_analysis['analyses']:
             dv_analysis_map[analysis['filename']] = analysis
+    
+    _progress("Generating HTML report structure...", 5)
     
     html_content = f"""
 <!DOCTYPE html>
@@ -2029,6 +2040,7 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
     
     # Generate Table of Contents with recordings and DV scores (if available)
     if transcriptions:
+        _progress("Creating table of contents...", 10)
         html_content += """
         <div class="toc-container" style="background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
             <h2 style="margin-top: 0; color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px;">
@@ -2106,7 +2118,16 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         </div>
 """
     
+    total_items = len(transcriptions)
+    _progress(f"Processing transcriptions (0/{total_items})...", 15)
+    
     for idx, item in enumerate(transcriptions):
+        # Update progress: 15% to 70% for processing transcriptions
+        if total_items > 0:
+            progress = 15 + int((idx / total_items) * 55)
+            if idx % max(1, total_items // 10) == 0 or idx == total_items - 1:  # Update every 10% or on last item
+                _progress(f"Processing transcriptions ({idx + 1}/{total_items})...", progress)
+        
         status_class = "success" if item['success'] else "error"
         # Create both absolute and relative paths for audio files
         audio_file_uri = Path(item['file_path']).as_uri()
@@ -2221,7 +2242,11 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                     start_time = format_time(segment.get('start', 0))
                     start_seconds = segment.get('start', 0)
                     segment_text = segment.get('text', '').strip()
-                    # Highlight keywords in segment text
+                    # Highlight keywords in segment text (progress: 70-85% for highlighting)
+                    if idx == total_items - 1:  # Only update on last transcription
+                        highlight_progress = 70 + int((len(segments) / max(1, sum(len(t.get('segments', [])) for t in transcriptions if t.get('success'))) * 15))
+                        if progress_callback and len(segments) > 0:
+                            _progress(f"Applying keyword highlighting...", min(85, highlight_progress))
                     highlighted_segment = _highlight_keywords(segment_text, dv_analysis_for_file, category_weights)
                     html_content += f"""
                 <div class="segment">
@@ -2271,12 +2296,16 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
 """
     
     # Save the HTML file
+    _progress("Finalizing HTML report...", 90)
     report_path = os.path.join(output_dir, "transcription_report.html")
     try:
         with open(report_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
+        _progress(f"✅ HTML report created successfully", 100)
         return report_path
     except Exception as e:
+        if progress_callback:
+            progress_callback(f"❌ Error creating HTML report: {e}", 100)
         print(f"Error creating HTML report: {e}")
         return None
 

@@ -292,31 +292,39 @@ class AudioTranscriber:
         Args:
             input_directory: Directory containing audio files
             output_directory: Directory containing transcription results
-            progress_callback: Optional callback function for progress updates
+            progress_callback: Optional callback function(message, percentage) for progress updates
             
         Returns:
             Path to the created zip file
         """
-        if progress_callback:
-            progress_callback("Creating results zip archive...")
-            
+        def _progress(message: str, percentage: int):
+            """Helper to call progress callback with message and percentage."""
+            if progress_callback:
+                # Support both old format (message only) and new format (message, percentage)
+                try:
+                    progress_callback(message, percentage)
+                except TypeError:
+                    # Fallback for old callback format that only accepts message
+                    progress_callback(f"[{percentage}%] {message}")
+        
+        _progress("Preparing results package...", 0)
+        
         # Create a temporary directory for the zip contents
         temp_dir = Path(output_directory) / "temp_zip_contents"
         temp_dir.mkdir(exist_ok=True)
         
         try:
-            # Copy HTML report to temp directory
+            # Copy HTML report to temp directory (5-10%)
+            _progress("Copying HTML report to package...", 5)
             html_report = Path(output_directory) / "transcription_report.html"
             if html_report.exists():
                 shutil.copy2(html_report, temp_dir)
-                
-                if progress_callback:
-                    progress_callback("Copied HTML report to zip archive")
+                _progress("HTML report copied to package", 10)
             else:
-                if progress_callback:
-                    progress_callback("Warning: HTML report not found")
+                _progress("Warning: HTML report not found", 10)
             
-            # Copy audio files to temp directory
+            # Copy audio files to temp directory (10-80%)
+            _progress("Scanning audio files...", 10)
             audio_files = get_audio_files(input_directory)
             audio_dir = temp_dir / "audio"
             audio_dir.mkdir(exist_ok=True)
@@ -325,64 +333,84 @@ class AudioTranscriber:
             web_mp3_files = []
             skipped_wav_files = []
             
-            for i, audio_file in enumerate(audio_files, 1):
-                file_path = Path(audio_file)
-                file_name = file_path.name
+            total_audio_files = len(audio_files)
+            if total_audio_files == 0:
+                _progress("No audio files to copy", 80)
+            else:
+                _progress(f"Copying audio files (0/{total_audio_files})...", 12)
                 
-                # Check for web-compatible MP3 version if this is a WAV file
-                if file_path.suffix.lower() == '.wav':
-                    potential_mp3 = file_path.parent / f"{file_path.stem}_web.mp3"
-                    if potential_mp3.exists():
-                        # If MP3 version exists, skip the original WAV and only copy the MP3
-                        web_mp3_files.append(potential_mp3)
-                        skipped_wav_files.append(file_path)
-                        shutil.copy2(potential_mp3, audio_dir / potential_mp3.name)
+                for i, audio_file in enumerate(audio_files, 1):
+                    file_path = Path(audio_file)
+                    file_name = file_path.name
+                    
+                    # Check for web-compatible MP3 version if this is a WAV file
+                    if file_path.suffix.lower() == '.wav':
+                        potential_mp3 = file_path.parent / f"{file_path.stem}_web.mp3"
+                        if potential_mp3.exists():
+                            # If MP3 version exists, skip the original WAV and only copy the MP3
+                            web_mp3_files.append(potential_mp3)
+                            skipped_wav_files.append(file_path)
+                            shutil.copy2(potential_mp3, audio_dir / potential_mp3.name)
+                        else:
+                            # No MP3 version, copy the original WAV
+                            shutil.copy2(audio_file, audio_dir / file_name)
                     else:
-                        # No MP3 version, copy the original WAV
+                        # For non-WAV files, copy as normal
                         shutil.copy2(audio_file, audio_dir / file_name)
-                else:
-                    # For non-WAV files, copy as normal
-                    shutil.copy2(audio_file, audio_dir / file_name)
-                
-                if progress_callback and i % 5 == 0:  # Update every 5 files
-                    progress_callback(f"Copying audio files: {i}/{len(audio_files)}")
+                    
+                    # Update progress: 12% to 78% for copying files
+                    if total_audio_files > 0:
+                        progress = 12 + int((i / total_audio_files) * 66)
+                        # Update every file or every 10% of files, whichever is more frequent
+                        if i == 1 or i == total_audio_files or i % max(1, total_audio_files // 10) == 0:
+                            _progress(f"Copying audio files ({i}/{total_audio_files})...", progress)
             
             # Log the total number of files copied
             total_files = len(audio_files) - len(skipped_wav_files) + len(web_mp3_files)
-            if progress_callback:
+            if total_files > 0:
                 if len(web_mp3_files) > 0:
-                    progress_callback(f"Copied {total_files} audio files to zip archive ({len(web_mp3_files)} converted WAV files replaced with MP3)")
+                    _progress(f"Copied {total_files} audio files ({len(web_mp3_files)} converted WAV files replaced with MP3)", 80)
                 else:
-                    progress_callback(f"Copied {total_files} audio files to zip archive")
+                    _progress(f"Copied {total_files} audio files", 80)
             
-            # Update HTML file to use relative paths for audio files
+            # Update HTML file to use relative paths for audio files (80-90%)
             if html_report.exists():
+                _progress("Updating file paths in HTML report...", 82)
                 self._update_html_paths(temp_dir / html_report.name, "audio")
-                
-                if progress_callback:
-                    progress_callback("Updated audio file paths in HTML report")
+                _progress("File paths updated in HTML report", 90)
             
-            # Create zip file
+            # Create zip file (90-98%)
+            _progress("Creating zip archive...", 90)
             zip_path = Path(output_directory) / "transcription_results.zip"
-            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                for file in temp_dir.rglob('*'):
-                    if file.is_file():
-                        zipf.write(
-                            file, 
-                            file.relative_to(temp_dir)
-                        )
             
-            if progress_callback:
-                progress_callback(f"✅ Created zip archive: {zip_path}")
+            # Count total files to add for progress tracking
+            files_to_zip = list(temp_dir.rglob('*'))
+            files_to_zip = [f for f in files_to_zip if f.is_file()]
+            total_zip_files = len(files_to_zip)
+            
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for idx, file in enumerate(files_to_zip, 1):
+                    zipf.write(
+                        file, 
+                        file.relative_to(temp_dir)
+                    )
+                    # Update progress: 90% to 97% for zipping files
+                    if total_zip_files > 0:
+                        zip_progress = 90 + int((idx / total_zip_files) * 7)
+                        if idx == total_zip_files or idx % max(1, total_zip_files // 5) == 0:
+                            _progress(f"Compressing files ({idx}/{total_zip_files})...", zip_progress)
+            
+            _progress("Finalizing package...", 98)
             
             # Clean up temporary directory
             shutil.rmtree(temp_dir)
             
+            _progress(f"✅ Results package created: {zip_path.name}", 100)
+            
             return str(zip_path)
             
         except Exception as e:
-            if progress_callback:
-                progress_callback(f"❌ Error creating zip archive: {str(e)}")
+            _progress(f"❌ Error creating zip archive: {str(e)}", 100)
             
             # Clean up temporary directory if it exists
             if temp_dir.exists():

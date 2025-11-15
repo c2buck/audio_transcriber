@@ -1028,9 +1028,19 @@ class AudioTranscriberGUI(QMainWindow):
                 
                 # Create HTML report (with DV scores and highlighting)
                 output_folder = self.output_folder_label.text()
+                
+                # Create progress callback wrapper for HTML report generation
+                def html_progress_callback(message: str, percentage: int = None):
+                    """Progress callback for HTML report generation."""
+                    if percentage is not None:
+                        self.log(f"[{percentage}%] {message}", "INFO")
+                    else:
+                        self.log(message, "INFO")
+                
                 html_path = create_html_report(
                     result['results'], output_folder, result['total_time'],
-                    success_count, failure_count, dv_analysis=self.dv_analysis_results
+                    success_count, failure_count, dv_analysis=self.dv_analysis_results,
+                    progress_callback=html_progress_callback
                 )
                 
                 # Recreate zip file with updated HTML report that includes wordlist results
@@ -1040,9 +1050,16 @@ class AudioTranscriberGUI(QMainWindow):
                         self.log("Updating zip file with wordlist analysis results...", "INFO")
                         try:
                             # Recreate the zip file with the updated HTML
+                            def zip_progress_callback(message: str, percentage: int = None):
+                                """Progress callback for zip file creation."""
+                                if percentage is not None:
+                                    self.log(f"[{percentage}%] {message}", "INFO")
+                                else:
+                                    self.log(message, "INFO")
+                            
                             updated_zip_path = self.transcriber.create_results_zip(
                                 input_folder, output_folder, 
-                                lambda msg: self.log(msg, "INFO")
+                                progress_callback=zip_progress_callback
                             )
                             if updated_zip_path:
                                 result['zip_path'] = updated_zip_path
@@ -1053,9 +1070,19 @@ class AudioTranscriberGUI(QMainWindow):
             else:
                 # Create HTML report without DV analysis
                 output_folder = self.output_folder_label.text()
+                
+                # Create progress callback wrapper for HTML report generation
+                def html_progress_callback(message: str, percentage: int = None):
+                    """Progress callback for HTML report generation."""
+                    if percentage is not None:
+                        self.log(f"[{percentage}%] {message}", "INFO")
+                    else:
+                        self.log(message, "INFO")
+                
                 html_path = create_html_report(
                     result['results'], output_folder, result['total_time'],
-                    success_count, failure_count, dv_analysis=None
+                    success_count, failure_count, dv_analysis=None,
+                    progress_callback=html_progress_callback
                 )
             
             if html_path:

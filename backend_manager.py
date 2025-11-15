@@ -630,9 +630,26 @@ class UnifiedTranscriber:
         # Get backend info for reports
         backend_info = self.get_backend_info()
         
-        # Create HTML report
+        # Create HTML report with progress updates
         try:
-            html_path = create_html_report(results, output_directory, total_time, success_count, failure_count)
+            # Create a wrapper for progress callback that handles both formats
+            def html_progress_wrapper(message: str, percentage: int = None):
+                """Wrapper to handle progress callback with optional percentage."""
+                if progress_callback:
+                    try:
+                        # Try new format with percentage
+                        if percentage is not None:
+                            progress_callback(f"[{percentage}%] {message}")
+                        else:
+                            progress_callback(message)
+                    except TypeError:
+                        # Fallback to old format
+                        progress_callback(message)
+            
+            html_path = create_html_report(
+                results, output_directory, total_time, success_count, failure_count,
+                progress_callback=html_progress_wrapper
+            )
             if html_path and progress_callback:
                 progress_callback(f"✅ Created HTML report: {os.path.basename(html_path)}")
         except Exception as e:
