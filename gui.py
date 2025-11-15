@@ -913,7 +913,21 @@ class AudioTranscriberGUI(QMainWindow):
     
     def update_file_progress(self, current: int, total: int):
         """Update file progress display."""
-        progress = int((current / total) * 100) if total > 0 else 0
+        # Calculate progress based on completed files, not current file
+        # If we're on file 1 of 10, we've completed 0 files, so progress should be 0%
+        # If we're on file 2 of 10, we've completed 1 file, so progress should be 10%
+        # Only show 100% when we've actually completed all files
+        if total > 0:
+            # Progress is based on files completed (current - 1), not current file
+            # But we want to show some progress for the current file being processed
+            # So we'll show progress as (current - 1) / total, but cap it at 99% until all files are done
+            completed = max(0, current - 1)
+            progress = int((completed / total) * 100) if total > 0 else 0
+            # Cap at 99% until transcription is actually finished
+            progress = min(99, progress)
+        else:
+            progress = 0
+        
         self.overall_progress.setValue(progress)
         self.file_progress_label.setText(f"Processing file {current} of {total}")
     
