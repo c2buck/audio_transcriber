@@ -236,6 +236,9 @@ class AudioTranscriberGUI(QMainWindow):
         self.dv_analyzer = DVWordListAnalyzer()
         self.dv_analysis_results = None
         
+        # Wordlist feature toggle state (default to False - disabled)
+        self.wordlist_enabled = False
+        
         # Initialize UI
         self.init_ui()
         self.load_settings()
@@ -721,6 +724,49 @@ class AudioTranscriberGUI(QMainWindow):
         device_layout.addWidget(self.device_label)
         
         layout.addWidget(device_group)
+        
+        # Word List Detection Group
+        wordlist_group = QGroupBox("Word List Detection")
+        wordlist_layout = QVBoxLayout(wordlist_group)
+        
+        # Wordlist status label
+        self.wordlist_status_label = QLabel("Disabled")
+        self.wordlist_status_label.setStyleSheet("color: gray; font-size: 11px;")
+        wordlist_layout.addWidget(self.wordlist_status_label)
+        
+        # Wordlist toggle button
+        self.wordlist_toggle_btn = QPushButton("Enable Word List Detection")
+        self.wordlist_toggle_btn.setCheckable(True)
+        self.wordlist_toggle_btn.setChecked(False)
+        self.wordlist_toggle_btn.clicked.connect(self.toggle_wordlist)
+        self.wordlist_toggle_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #6c757d;
+                color: white;
+                font-weight: bold;
+                padding: 8px;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #5a6268;
+            }
+            QPushButton:checked {
+                background-color: #28a745;
+            }
+            QPushButton:checked:hover {
+                background-color: #218838;
+            }
+        """)
+        wordlist_layout.addWidget(self.wordlist_toggle_btn)
+        
+        # Wordlist description
+        wordlist_desc = QLabel("Analyzes transcriptions for specific keywords and phrases")
+        wordlist_desc.setStyleSheet("color: gray; font-size: 10px;")
+        wordlist_desc.setWordWrap(True)
+        wordlist_layout.addWidget(wordlist_desc)
+        
+        layout.addWidget(wordlist_group)
         
         # Control Buttons
         control_layout = QHBoxLayout()
@@ -1287,46 +1333,54 @@ class AudioTranscriberGUI(QMainWindow):
                 avg_time_per_file = result['total_time'] / (success_count + failure_count)
                 self.log(f"Average time per file: {avg_time_per_file:.1f} seconds", "INFO")
             
-            # Run DV analysis on transcriptions
-            self.log("🔍 Starting Domestic Violence word list analysis...", "INFO")
-            dv_analysis = self.dv_analyzer.analyze_batch(result['results'])
-            self.dv_analysis_results = dv_analysis
-            
-            # Add DV scores to results
-            dv_score_map = {a['filename']: a for a in dv_analysis['analyses']}
-            for res in result['results']:
-                if res.get('success', False):
-                    filename = Path(res.get('file_path', '')).name
-                    if filename in dv_score_map:
-                        res['dv_score'] = dv_score_map[filename]['total_score']
-                        res['dv_match_count'] = dv_score_map[filename]['match_count']
-            
-            # Log DV analysis summary
-            self.log(f"✅ DV Analysis complete: {dv_analysis['recordings_with_matches']} recordings with matches", "SUCCESS")
-            if dv_analysis['top_10']:
-                self.log(f"⚠️  Top scoring recording: {dv_analysis['top_10'][0]['filename']} (Score: {dv_analysis['top_10'][0]['total_score']})", "WARNING")
-            
-            # Update results text with DV summary and individual scores
-            if dv_analysis['recordings_with_matches'] > 0:
-                results_lines.append(f"• Recordings flagged for review: {dv_analysis['recordings_with_matches']}")
+            # Run DV analysis on transcriptions only if wordlist is enabled
+            if self.wordlist_enabled:
+                self.log("🔍 Starting Domestic Violence word list analysis...", "INFO")
+                dv_analysis = self.dv_analyzer.analyze_batch(result['results'])
+                self.dv_analysis_results = dv_analysis
                 
-                # Add top 3 scores to summary
+                # Add DV scores to results
+                dv_score_map = {a['filename']: a for a in dv_analysis['analyses']}
+                for res in result['results']:
+                    if res.get('success', False):
+                        filename = Path(res.get('file_path', '')).name
+                        if filename in dv_score_map:
+                            res['dv_score'] = dv_score_map[filename]['total_score']
+                            res['dv_match_count'] = dv_score_map[filename]['match_count']
+                
+                # Log DV analysis summary
+                self.log(f"✅ DV Analysis complete: {dv_analysis['recordings_with_matches']} recordings with matches", "SUCCESS")
                 if dv_analysis['top_10']:
-                    top_3 = dv_analysis['top_10'][:3]
-                    results_lines.append("• Top scoring recordings:")
-                    for i, rec in enumerate(top_3, 1):
-                        filename = rec['filename'][:40] + "..." if len(rec['filename']) > 40 else rec['filename']
-                        results_lines.append(f"  {i}. {filename} (Score: {rec['total_score']:.1f})")
+                    self.log(f"⚠️  Top scoring recording: {dv_analysis['top_10'][0]['filename']} (Score: {dv_analysis['top_10'][0]['total_score']})", "WARNING")
                 
-                results_text = "\n".join(results_lines)
-                self.results_label.setText(results_text)
-            
-            # Create HTML report (with DV scores and highlighting)
-            output_folder = self.output_folder_label.text()
-            html_path = create_html_report(
-                result['results'], output_folder, result['total_time'],
-                success_count, failure_count, dv_analysis=self.dv_analysis_results
-            )
+                # Update results text with DV summary and individual scores
+                if dv_analysis['recordings_with_matches'] > 0:
+                    results_lines.append(f"• Recordings flagged for review: {dv_analysis['recordings_with_matches']}")
+                    
+                    # Add top 3 scores to summary
+                    if dv_analysis['top_10']:
+                        top_3 = dv_analysis['top_10'][:3]
+                        results_lines.append("• Top scoring recordings:")
+                        for i, rec in enumerate(top_3, 1):
+                            filename = rec['filename'][:40] + "..." if len(rec['filename']) > 40 else rec['filename']
+                            results_lines.append(f"  {i}. {filename} (Score: {rec['total_score']:.1f})")
+                    
+                    results_text = "\n".join(results_lines)
+                    self.results_label.setText(results_text)
+                
+                # Create HTML report (with DV scores and highlighting)
+                output_folder = self.output_folder_label.text()
+                html_path = create_html_report(
+                    result['results'], output_folder, result['total_time'],
+                    success_count, failure_count, dv_analysis=self.dv_analysis_results
+                )
+            else:
+                # Create HTML report without DV analysis
+                output_folder = self.output_folder_label.text()
+                html_path = create_html_report(
+                    result['results'], output_folder, result['total_time'],
+                    success_count, failure_count, dv_analysis=None
+                )
             
             if html_path:
                 self.html_report_path = html_path
@@ -1534,6 +1588,22 @@ class AudioTranscriberGUI(QMainWindow):
         self.settings.setValue("theme", new_theme)
         self.apply_theme()
     
+    def toggle_wordlist(self):
+        """Toggle wordlist analysis feature on/off."""
+        self.wordlist_enabled = self.wordlist_toggle_btn.isChecked()
+        self.settings.setValue("wordlist_enabled", self.wordlist_enabled)
+        
+        if self.wordlist_enabled:
+            self.wordlist_toggle_btn.setText("Disable Word List Detection")
+            self.wordlist_status_label.setText("Enabled - Will analyze transcriptions")
+            self.wordlist_status_label.setStyleSheet("color: #28a745; font-size: 11px; font-weight: bold;")
+            self.log("Wordlist analysis enabled - will run on next transcription", "INFO")
+        else:
+            self.wordlist_toggle_btn.setText("Enable Word List Detection")
+            self.wordlist_status_label.setText("Disabled")
+            self.wordlist_status_label.setStyleSheet("color: gray; font-size: 11px;")
+            self.log("Wordlist analysis disabled", "INFO")
+    
     def apply_theme(self):
         """Apply the selected theme."""
         theme = self.settings.value("theme", "light")
@@ -1636,6 +1706,19 @@ class AudioTranscriberGUI(QMainWindow):
                 break
         
         # Device preference will be loaded in populate_device_combo()
+        
+        # Load wordlist enabled preference
+        self.wordlist_enabled = self.settings.value("wordlist_enabled", False, type=bool)
+        if hasattr(self, 'wordlist_toggle_btn'):
+            self.wordlist_toggle_btn.setChecked(self.wordlist_enabled)
+            if self.wordlist_enabled:
+                self.wordlist_toggle_btn.setText("Disable Word List Detection")
+                self.wordlist_status_label.setText("Enabled - Will analyze transcriptions")
+                self.wordlist_status_label.setStyleSheet("color: #28a745; font-size: 11px; font-weight: bold;")
+            else:
+                self.wordlist_toggle_btn.setText("Enable Word List Detection")
+                self.wordlist_status_label.setText("Disabled")
+                self.wordlist_status_label.setStyleSheet("color: gray; font-size: 11px;")
     
     # AI Review Methods
     def test_ollama_connection(self):
