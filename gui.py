@@ -1374,6 +1374,24 @@ class AudioTranscriberGUI(QMainWindow):
                     result['results'], output_folder, result['total_time'],
                     success_count, failure_count, dv_analysis=self.dv_analysis_results
                 )
+                
+                # Recreate zip file with updated HTML report that includes wordlist results
+                if html_path and hasattr(self, 'transcriber') and self.transcriber:
+                    input_folder = self.input_folder_label.text()
+                    if input_folder and 'zip_path' in result and result['zip_path']:
+                        self.log("Updating zip file with wordlist analysis results...", "INFO")
+                        try:
+                            # Recreate the zip file with the updated HTML
+                            updated_zip_path = self.transcriber.create_results_zip(
+                                input_folder, output_folder, 
+                                lambda msg: self.log(msg, "INFO")
+                            )
+                            if updated_zip_path:
+                                result['zip_path'] = updated_zip_path
+                                self.zip_file_path = updated_zip_path
+                                self.log("✅ Zip file updated with wordlist analysis results", "SUCCESS")
+                        except Exception as e:
+                            self.log(f"Warning: Could not update zip file: {str(e)}", "WARNING")
             else:
                 # Create HTML report without DV analysis
                 output_folder = self.output_folder_label.text()
