@@ -1710,6 +1710,19 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         let caseSensitive = false;
         let wholeWord = false;
         
+        // Debounce utility for search input
+        function debounce(func, wait) {{
+            let timeout;
+            return function executedFunction(...args) {{
+                const later = () => {{
+                    clearTimeout(timeout);
+                    func(...args);
+                }};
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            }};
+        }}
+        
         function performSearch() {{
             const searchInput = document.getElementById('searchInput');
             const query = searchInput.value.trim();
@@ -1730,94 +1743,128 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 return;
             }}
             
-            // Get all searchable text content
-            const searchableElements = document.querySelectorAll('.segment-text, .full-text, .filename');
+            // Get all searchable elements (already indexed)
+            const searchableElements = Array.from(document.querySelectorAll('.segment-text, .full-text, .filename'));
+            const totalElements = searchableElements.length;
+            let currentIndex = 0;
             let matchCount = 0;
+            const CHUNK_SIZE = 25; // Process 25 elements per frame
+            const pendingUpdates = new Map(); // element -> highlightedHTML
             
-            searchableElements.forEach(element => {{
-                // Get original text - if we stored it, use that; otherwise use current textContent
-                let originalText = element.dataset.originalText || element.textContent;
+            // Show search status
+            updateSearchResultsInfo('Searching...');
+            
+            function processChunk() {{
+                const endIndex = Math.min(currentIndex + CHUNK_SIZE, totalElements);
                 
-                // Store original text if not already stored (before any highlights)
-                if (!element.dataset.originalText) {{
-                    element.dataset.originalText = element.textContent;
-                }}
-                
-                const elementMatches = findMatches(originalText, query);
-                
-                if (elementMatches.length > 0) {{
-                    // Create highlighted version
-                    let highlightedText = originalText;
-                    let offset = 0;
+                for (let i = currentIndex; i < endIndex; i++) {{
+                    const element = searchableElements[i];
+                    // Use pre-indexed text (much faster)
+                    const originalText = element.dataset.originalText || element.textContent;
                     
-                    // Sort matches by position (descending) to avoid offset issues
-                    const sortedMatches = [...elementMatches].sort((a, b) => b.index - a.index);
+                    // Use pre-computed lowercase for case-insensitive search
+                    const searchText = caseSensitive ? originalText : (element.dataset.lowerText || originalText.toLowerCase());
+                    const searchQueryLower = caseSensitive ? query : query.toLowerCase();
                     
-                    sortedMatches.forEach(match => {{
-                        const before = highlightedText.substring(0, match.index + offset);
-                        const after = highlightedText.substring(match.index + offset + match.length);
-                        const escapedText = escapeHtml(match.text);
-                        const highlight = `<span class="search-highlight" data-match-index="${{matchCount}}">${{escapedText}}</span>`;
-                        highlightedText = before + highlight + after;
-                        offset += highlight.length - match.length;
+                    const elementMatches = findMatchesFast(originalText, searchText, searchQueryLower, query);
+                    
+                    if (elementMatches.length > 0) {{
+                        // Build highlighted version
+                        const highlightedText = buildHighlightedText(originalText, elementMatches, matchCount);
+                        pendingUpdates.set(element, highlightedText);
                         
                         // Store match info
-                        searchMatches.push({{
-                            element: element,
-                            index: matchCount,
-                            textNode: element
+                        elementMatches.forEach(match => {{
+                            searchMatches.push({{
+                                element: element,
+                                index: matchCount++,
+                                textNode: element
+                            }});
                         }});
-                        matchCount++;
-                    }});
-                    
-                    // Replace text content with HTML
-                    element.innerHTML = highlightedText;
+                    }}
                 }}
-            }});
-            
-            if (searchMatches.length > 0) {{
-                currentMatchIndex = 0;
-                scrollToMatch(0);
+                
+                currentIndex = endIndex;
+                
+                // Apply DOM updates in batches to avoid too many reflows
+                if (pendingUpdates.size >= 20 || currentIndex >= totalElements) {{
+                    applyDOMUpdates(pendingUpdates);
+                    pendingUpdates.clear();
+                }}
+                
+                if (currentIndex < totalElements) {{
+                    requestAnimationFrame(processChunk);
+                }} else {{
+                    // Final batch update
+                    applyDOMUpdates(pendingUpdates);
+                    
+                    if (searchMatches.length > 0) {{
+                        currentMatchIndex = 0;
+                        scrollToMatch(0);
+                    }}
+                    updateSearchResultsInfo();
+                }}
             }}
             
-            updateSearchResultsInfo();
+            processChunk();
         }}
         
-        function findMatches(text, query) {{
+        function findMatchesFast(originalText, searchText, searchQueryLower, query) {{
             const matches = [];
-            let searchText = text;
-            let searchQuery = query;
-            
-            if (!caseSensitive) {{
-                searchText = text.toLowerCase();
-                searchQuery = query.toLowerCase();
-            }}
             
             if (wholeWord) {{
-                // Use word boundary regex
-                const regex = new RegExp(`\\\\b${{escapeRegex(searchQuery)}}\\\\b`, caseSensitive ? 'g' : 'gi');
+                // Pre-compile regex for better performance
+                const pattern = `\\\\b${{escapeRegex(searchQueryLower)}}\\\\b`;
+                const regex = new RegExp(pattern, 'g');
                 let match;
-                while ((match = regex.exec(text)) !== null) {{
+                while ((match = regex.exec(searchText)) !== null) {{
                     matches.push({{
                         index: match.index,
                         length: match[0].length,
-                        text: match[0]
+                        text: originalText.substring(match.index, match.index + match[0].length)
                     }});
                 }}
             }} else {{
-                // Simple substring search
+                // Fast substring search using pre-lowercased text
                 let index = 0;
-                while ((index = searchText.indexOf(searchQuery, index)) !== -1) {{
+                while ((index = searchText.indexOf(searchQueryLower, index)) !== -1) {{
                     matches.push({{
                         index: index,
                         length: query.length,
-                        text: text.substring(index, index + query.length)
+                        text: originalText.substring(index, index + query.length)
                     }});
-                    index += query.length;
+                    index += query.length; // Move past this match
                 }}
             }}
             
             return matches;
+        }}
+        
+        function buildHighlightedText(text, matches, startMatchIndex) {{
+            if (matches.length === 0) return text;
+            
+            // Sort matches by position (descending) to avoid offset issues
+            const sortedMatches = [...matches].sort((a, b) => b.index - a.index);
+            let result = text;
+            let matchCount = startMatchIndex;
+            
+            sortedMatches.forEach(match => {{
+                const before = result.substring(0, match.index);
+                const after = result.substring(match.index + match.length);
+                const escapedText = escapeHtml(match.text);
+                const highlight = `<span class="search-highlight" data-match-index="${{matchCount}}">${{escapedText}}</span>`;
+                result = before + highlight + after;
+                matchCount++;
+            }});
+            
+            return result;
+        }}
+        
+        function applyDOMUpdates(updates) {{
+            // Batch DOM updates to minimize reflows
+            updates.forEach((newHTML, element) => {{
+                element.innerHTML = newHTML;
+            }});
         }}
         
         function escapeRegex(str) {{
@@ -1831,30 +1878,47 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         }}
         
         function clearHighlights() {{
-            // Remove all highlights and restore original text
+            // Fast clear using pre-indexed text
             const searchableElements = document.querySelectorAll('.segment-text, .full-text, .filename');
-            searchableElements.forEach(element => {{
-                // Restore original text if stored
-                if (element.dataset.originalText) {{
-                    element.textContent = element.dataset.originalText;
-                    // Optionally remove the data attribute if you want to reset
-                    // delete element.dataset.originalText;
-                }} else {{
-                    // Fallback: remove highlight spans
-                    const highlights = element.querySelectorAll('.search-highlight');
-                    highlights.forEach(highlight => {{
-                        const parent = highlight.parentNode;
-                        const text = highlight.textContent;
-                        const textNode = document.createTextNode(text);
-                        parent.replaceChild(textNode, highlight);
-                        parent.normalize();
-                    }});
+            const total = searchableElements.length;
+            let cleared = 0;
+            const CHUNK_SIZE = 100;
+            
+            function clearChunk() {{
+                const end = Math.min(cleared + CHUNK_SIZE, total);
+                
+                for (let i = cleared; i < end; i++) {{
+                    const element = searchableElements[i];
+                    if (element.dataset.originalText) {{
+                        element.textContent = element.dataset.originalText;
+                    }} else {{
+                        // Fallback: remove highlight spans
+                        const highlights = element.querySelectorAll('.search-highlight');
+                        if (highlights.length > 0) {{
+                            const text = element.textContent;
+                            element.textContent = text;
+                        }}
+                    }}
                 }}
-            }});
+                
+                cleared = end;
+                
+                if (cleared < total) {{
+                    requestAnimationFrame(clearChunk);
+                }}
+            }}
+            
+            clearChunk();
         }}
         
-        function updateSearchResultsInfo() {{
+        function updateSearchResultsInfo(status) {{
             const infoElement = document.getElementById('searchResultsInfo');
+            if (status) {{
+                infoElement.textContent = status;
+                infoElement.style.color = '#6c757d';
+                return;
+            }}
+            
             if (searchMatches.length === 0) {{
                 if (searchQuery) {{
                     infoElement.textContent = 'No matches found';
@@ -1958,11 +2022,43 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             }}
         }});
         
-        // Initialize search on page load
+        // Initialize search on page load with pre-indexing
         document.addEventListener('DOMContentLoaded', function() {{
+            // Pre-index ALL searchable text content (runs once on page load)
+            const searchableElements = document.querySelectorAll('.segment-text, .full-text, .filename');
+            const totalElements = searchableElements.length;
+            let indexed = 0;
+            
+            function indexChunk() {{
+                const chunkSize = 200; // Process 200 elements per frame
+                const end = Math.min(indexed + chunkSize, totalElements);
+                
+                for (let i = indexed; i < end; i++) {{
+                    const element = searchableElements[i];
+                    if (!element.dataset.originalText) {{
+                        element.dataset.originalText = element.textContent;
+                        // Pre-compute lowercase version for faster case-insensitive search
+                        element.dataset.lowerText = element.textContent.toLowerCase();
+                    }}
+                }}
+                
+                indexed = end;
+                
+                if (indexed < totalElements) {{
+                    requestAnimationFrame(indexChunk);
+                }} else {{
+                    // Indexing complete, now initialize search
+                    initializeSearch();
+                }}
+            }}
+            
+            indexChunk();
+        }});
+        
+        function initializeSearch() {{
             const searchInput = document.getElementById('searchInput');
             if (searchInput) {{
-                searchInput.addEventListener('input', performSearch);
+                searchInput.addEventListener('input', debounce(performSearch, 300));
                 searchInput.addEventListener('keyup', function(e) {{
                     if (e.key === 'Enter') {{
                         e.preventDefault();
@@ -1973,7 +2069,7 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             
             document.getElementById('caseSensitive').addEventListener('change', performSearch);
             document.getElementById('wholeWord').addEventListener('change', performSearch);
-        }});
+        }}
     </script>
 </head>
 <body>
