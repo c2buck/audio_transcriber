@@ -497,7 +497,8 @@ class UnifiedTranscriber:
     
     def transcribe_batch(self, input_directory: str, output_directory: str,
                         progress_callback: Optional[Callable] = None,
-                        file_progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
+                        file_progress_callback: Optional[Callable] = None,
+                        cancellation_check: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
         """Transcribe all audio files in a directory."""
         from utils import get_audio_files, safe_filename, create_html_report, create_json_transcript, create_chunked_json_transcript
         from audio_converter import process_audio_files_for_web_compatibility
@@ -515,7 +516,21 @@ class UnifiedTranscriber:
                 'total_time': 0,
                 'success_count': 0,
                 'failure_count': 0,
-                'backend': self.backend_name
+                'backend': self.backend_name,
+                'cancelled': False
+            }
+        
+        # Check for cancellation before starting
+        if cancellation_check and cancellation_check():
+            return {
+                'success': False,
+                'error': 'Transcription cancelled by user',
+                'results': [],
+                'total_time': 0,
+                'success_count': 0,
+                'failure_count': 0,
+                'backend': self.backend_name,
+                'cancelled': True
             }
         
         if progress_callback:
@@ -524,6 +539,19 @@ class UnifiedTranscriber:
         # Process audio files for web compatibility (convert problematic WAV files)
         if progress_callback:
             progress_callback("🔍 Checking audio files for web compatibility...")
+        
+        # Check for cancellation during file processing
+        if cancellation_check and cancellation_check():
+            return {
+                'success': False,
+                'error': 'Transcription cancelled by user',
+                'results': [],
+                'total_time': time.time() - start_time,
+                'success_count': 0,
+                'failure_count': 0,
+                'backend': self.backend_name,
+                'cancelled': True
+            }
         
         processed_audio_files, converted_count = process_audio_files_for_web_compatibility(
             audio_files, progress_callback
@@ -555,7 +583,8 @@ class UnifiedTranscriber:
                     'total_time': 0,
                     'success_count': 0,
                     'failure_count': 0,
-                    'backend': self.backend_name
+                    'backend': self.backend_name,
+                    'cancelled': False
                 }
         
         # Process files
@@ -564,6 +593,22 @@ class UnifiedTranscriber:
         failure_count = 0
         
         for i, audio_file in enumerate(audio_files, 1):
+            # Check for cancellation before processing each file
+            if cancellation_check and cancellation_check():
+                if progress_callback:
+                    progress_callback("⚠️ Transcription cancelled by user")
+                return {
+                    'success': False,
+                    'error': 'Transcription cancelled by user',
+                    'results': results,
+                    'total_time': time.time() - start_time,
+                    'success_count': success_count,
+                    'failure_count': failure_count,
+                    'backend': self.backend_name,
+                    'cancelled': True,
+                    'conversion_info': conversion_info
+                }
+            
             if file_progress_callback:
                 file_progress_callback(i, len(audio_files))
             
@@ -621,7 +666,8 @@ class UnifiedTranscriber:
             'failure_count': failure_count,
             'backend': self.backend_name,
             'model_name': self.model_name,
-            'conversion_info': conversion_info
+            'conversion_info': conversion_info,
+            'cancelled': False
         }
     
     def _save_individual_transcription(self, result: Dict[str, Any], output_directory: str):

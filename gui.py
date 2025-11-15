@@ -46,16 +46,25 @@ class TranscriptionWorker(QThread):
             if not self.is_cancelled:
                 self.file_progress.emit(current, total)
         
+        def cancellation_check():
+            """Check if cancellation has been requested."""
+            return self.is_cancelled
+        
         try:
             result = self.transcriber.transcribe_batch(
                 self.input_dir,
                 self.output_dir,
                 progress_callback,
                 file_progress_callback,
-                self.create_zip
+                self.create_zip,
+                cancellation_check
             )
             
             if not self.is_cancelled:
+                self.finished.emit(result)
+            else:
+                # Emit cancelled result
+                result['cancelled'] = True
                 self.finished.emit(result)
         except Exception as e:
             if not self.is_cancelled:
@@ -66,7 +75,20 @@ class TranscriptionWorker(QThread):
                     'total_time': 0,
                     'success_count': 0,
                     'failure_count': 0,
-                    'zip_path': None
+                    'zip_path': None,
+                    'cancelled': False
+                })
+            else:
+                # Cancelled during exception
+                self.finished.emit({
+                    'success': False,
+                    'error': 'Transcription cancelled',
+                    'results': [],
+                    'total_time': 0,
+                    'success_count': 0,
+                    'failure_count': 0,
+                    'zip_path': None,
+                    'cancelled': True
                 })
     
     def cancel(self):
@@ -877,9 +899,17 @@ class AudioTranscriberGUI(QMainWindow):
     
     def stop_transcription(self):
         """Stop the transcription process."""
-        if self.worker_thread:
+        if self.worker_thread and self.worker_thread.isRunning():
+            self.log("Stopping transcription...", "WARNING")
             self.worker_thread.cancel()
-            self.log("Transcription process cancelled by user", "WARNING")
+            
+            # Update UI immediately to show response
+            self.stop_btn.setEnabled(False)
+            self.stop_btn.setText("Stopping...")
+            
+            # Don't wait here - let the cancellation check in the transcription loop handle it
+            # The finished signal will be emitted when cancellation is detected
+            # This prevents the UI from freezing
     
     def update_file_progress(self, current: int, total: int):
         """Update file progress display."""
@@ -892,12 +922,28 @@ class AudioTranscriberGUI(QMainWindow):
         # Update UI state
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+        self.stop_btn.setText("Stop")
         self.select_input_btn.setEnabled(True)
         self.select_output_btn.setEnabled(True)
         self.backend_combo.setEnabled(True)
         self.model_combo.setEnabled(True)
         self.beam_size_combo.setEnabled(True)
         self.device_combo.setEnabled(True)
+        
+        # Check if transcription was cancelled
+        if result.get('cancelled', False):
+            self.log("=== TRANSCRIPTION CANCELLED ===", "WARNING")
+            self.file_progress_label.setText("Transcription cancelled")
+            self.overall_progress.setValue(0)
+            
+            # Show partial results if any
+            if result.get('results'):
+                success_count = result.get('success_count', 0)
+                failure_count = result.get('failure_count', 0)
+                self.log(f"Partial results: {success_count} successful, {failure_count} failed", "INFO")
+            
+            self.worker_thread = None
+            return
         
         if result['success']:
             self.overall_progress.setValue(100)
@@ -1373,12 +1419,39 @@ class AudioTranscriberGUI(QMainWindow):
                     # Stop transcription
                     if hasattr(self, 'worker_thread') and self.worker_thread:
                         self.worker_thread.cancel()
-                        if not self.worker_thread.wait(3000):
+                        # Wait for graceful shutdown
+                        if not self.worker_thread.wait(3000):  # Wait up to 3 seconds
+                            # Force terminate if it doesn't respond
                             self.worker_thread.terminate()
-                            self.worker_thread.wait(1000)
+                            self.worker_thread.wait(2000)  # Wait for termination
+                        self.worker_thread = None
                 else:
                     event.ignore()
                     return
+            
+            # Clean up transcriber resources (release GPU memory, etc.)
+            if hasattr(self, 'transcriber') and self.transcriber:
+                try:
+                    # Release model resources
+                    if hasattr(self.transcriber, 'unified_transcriber') and self.transcriber.unified_transcriber:
+                        if hasattr(self.transcriber.unified_transcriber, 'model') and self.transcriber.unified_transcriber.model:
+                            # Delete model to free memory
+                            del self.transcriber.unified_transcriber.model
+                            self.transcriber.unified_transcriber.model = None
+                            self.transcriber.unified_transcriber.is_model_loaded = False
+                    
+                    # Clear transcriber reference
+                    self.transcriber = None
+                except Exception as e:
+                    print(f"Error cleaning up transcriber: {e}")
+            
+            # Clear CUDA cache if available
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            except Exception:
+                pass
             
             # Save settings before closing
             if hasattr(self, 'settings'):

@@ -157,7 +157,8 @@ class AudioTranscriber:
     def transcribe_batch(self, input_directory: str, output_directory: str,
                         progress_callback: Optional[Callable] = None,
                         file_progress_callback: Optional[Callable] = None,
-                        create_zip: bool = True) -> Dict[str, Any]:
+                        create_zip: bool = True,
+                        cancellation_check: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
         """
         Transcribe all audio files in a directory using the selected backend.
         
@@ -167,6 +168,7 @@ class AudioTranscriber:
             progress_callback: Callback for overall progress updates
             file_progress_callback: Callback for individual file progress (current, total)
             create_zip: Whether to create a zip file with results and audio files
+            cancellation_check: Optional callback function that returns True if cancellation is requested
             
         Returns:
             Dict containing batch transcription results
@@ -181,17 +183,24 @@ class AudioTranscriber:
                     'total_time': 0,
                     'success_count': 0,
                     'failure_count': 0,
-                    'zip_path': None
+                    'zip_path': None,
+                    'cancelled': False
                 }
         
         # Delegate to unified transcriber which handles all the detailed processing
         result = self.unified_transcriber.transcribe_batch(
-            input_directory, output_directory, progress_callback, file_progress_callback
+            input_directory, output_directory, progress_callback, file_progress_callback, cancellation_check
         )
         
         # Create a zip file with results and audio files if requested
+        # Only create zip if not cancelled
         zip_path = None
-        if create_zip and result.get('success', False):
+        if create_zip and result.get('success', False) and not result.get('cancelled', False):
+            # Check for cancellation before creating zip
+            if cancellation_check and cancellation_check():
+                result['cancelled'] = True
+                return result
+            
             if progress_callback:
                 progress_callback("Creating results package...")
             
