@@ -17,7 +17,7 @@ from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor
 
 from transcriber import AudioTranscriber
 from backend_manager import BackendManager
-from utils import get_audio_files, create_html_report, create_json_transcript, format_time
+from utils import get_audio_files, create_html_report, format_time
 from dv_review import DVWordListAnalyzer
 
 
@@ -1065,21 +1065,10 @@ class AudioTranscriberGUI(QMainWindow):
             else:
                 self.log("Failed to create HTML report", "WARNING")
             
-            # Create JSON transcript
+            # JSON transcript creation has been disabled
+            
+            # Handle zip file if created
             if hasattr(self, 'transcriber') and self.transcriber:
-                model_info = self.transcriber.get_backend_info()
-                json_path = create_json_transcript(
-                    result['results'], output_folder, result['total_time'],
-                    success_count, failure_count, model_info
-                )
-                
-                if json_path:
-                    self.log(f"JSON transcript created: {json_path}", "SUCCESS")
-                    self.log("JSON file created successfully", "INFO")
-                else:
-                    self.log("Failed to create JSON transcript", "WARNING")
-                
-                # Handle zip file if created
                 if 'zip_path' in result and result['zip_path']:
                     self.zip_file_path = result['zip_path']
                     self.open_zip_btn.setEnabled(True)

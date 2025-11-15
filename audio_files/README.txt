@@ -18,5 +18,4 @@ Example usage:
 5. Click "Start Transcription"
 
 The application will create:
-- Individual .txt files for each transcription
 - A combined HTML report with links to the original audio files

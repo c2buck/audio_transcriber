@@ -500,7 +500,7 @@ class UnifiedTranscriber:
                         file_progress_callback: Optional[Callable] = None,
                         cancellation_check: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
         """Transcribe all audio files in a directory."""
-        from utils import get_audio_files, safe_filename, create_html_report, create_json_transcript, create_chunked_json_transcript
+        from utils import get_audio_files, safe_filename, create_html_report
         from audio_converter import process_audio_files_for_web_compatibility
         
         start_time = time.time()
@@ -617,7 +617,7 @@ class UnifiedTranscriber:
             
             if result['success']:
                 success_count += 1
-                self._save_individual_transcription(result, output_directory)
+                # Individual .txt files are no longer created
             else:
                 failure_count += 1
         
@@ -639,23 +639,7 @@ class UnifiedTranscriber:
             if progress_callback:
                 progress_callback(f"❌ Error creating HTML report: {str(e)}")
         
-        # Create standard JSON transcript
-        try:
-            json_path = create_json_transcript(results, output_directory, total_time, success_count, failure_count, backend_info)
-            if json_path and progress_callback:
-                progress_callback(f"✅ Created JSON transcript: {os.path.basename(json_path)}")
-        except Exception as e:
-            if progress_callback:
-                progress_callback(f"❌ Error creating JSON transcript: {str(e)}")
-        
-        # Create chunked JSON transcript for AI review
-        try:
-            chunked_json_path = create_chunked_json_transcript(results, output_directory, total_time, success_count, failure_count, backend_info)
-            if chunked_json_path and progress_callback:
-                progress_callback(f"✅ Created chunked JSON for AI review: {os.path.basename(chunked_json_path)}")
-        except Exception as e:
-            if progress_callback:
-                progress_callback(f"❌ Error creating chunked JSON for AI review: {str(e)}")
+        # JSON transcript creation has been disabled
         
         return {
             'success': True,
