@@ -321,28 +321,39 @@ class AudioTranscriber:
             audio_dir = temp_dir / "audio"
             audio_dir.mkdir(exist_ok=True)
             
-            # Keep track of additional web MP3 files
+            # Keep track of web MP3 files and skipped WAV files
             web_mp3_files = []
+            skipped_wav_files = []
             
             for i, audio_file in enumerate(audio_files, 1):
                 file_path = Path(audio_file)
                 file_name = file_path.name
-                shutil.copy2(audio_file, audio_dir / file_name)
                 
                 # Check for web-compatible MP3 version if this is a WAV file
                 if file_path.suffix.lower() == '.wav':
                     potential_mp3 = file_path.parent / f"{file_path.stem}_web.mp3"
                     if potential_mp3.exists():
+                        # If MP3 version exists, skip the original WAV and only copy the MP3
                         web_mp3_files.append(potential_mp3)
+                        skipped_wav_files.append(file_path)
                         shutil.copy2(potential_mp3, audio_dir / potential_mp3.name)
+                    else:
+                        # No MP3 version, copy the original WAV
+                        shutil.copy2(audio_file, audio_dir / file_name)
+                else:
+                    # For non-WAV files, copy as normal
+                    shutil.copy2(audio_file, audio_dir / file_name)
                 
                 if progress_callback and i % 5 == 0:  # Update every 5 files
                     progress_callback(f"Copying audio files: {i}/{len(audio_files)}")
             
             # Log the total number of files copied
-            total_files = len(audio_files) + len(web_mp3_files)
+            total_files = len(audio_files) - len(skipped_wav_files) + len(web_mp3_files)
             if progress_callback:
-                progress_callback(f"Copied {total_files} audio files to zip archive ({len(web_mp3_files)} web-compatible MP3s)")
+                if len(web_mp3_files) > 0:
+                    progress_callback(f"Copied {total_files} audio files to zip archive ({len(web_mp3_files)} converted WAV files replaced with MP3)")
+                else:
+                    progress_callback(f"Copied {total_files} audio files to zip archive")
             
             # Update HTML file to use relative paths for audio files
             if html_report.exists():
