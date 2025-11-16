@@ -319,7 +319,7 @@ class AudioTranscriberGUI(QMainWindow):
         
         self.beam_size_combo = QComboBox()
         self.beam_size_combo.addItems(["1", "3", "5", "7", "10"])
-        self.beam_size_combo.setCurrentText("5")
+        self.beam_size_combo.setCurrentText("1")
         self.beam_size_combo.currentTextChanged.connect(self.on_beam_size_changed)
         beam_layout.addWidget(self.beam_size_combo)
         
@@ -1405,7 +1405,7 @@ class AudioTranscriberGUI(QMainWindow):
                 break
         
         # Load beam size preference
-        preferred_beam_size = self.settings.value("beam_size", "5")
+        preferred_beam_size = self.settings.value("beam_size", "1")
         for i in range(self.beam_size_combo.count()):
             if self.beam_size_combo.itemText(i) == preferred_beam_size:
                 self.beam_size_combo.setCurrentIndex(i)

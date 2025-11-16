@@ -444,8 +444,18 @@ class UnifiedTranscriber:
         
         segments, info = self.model.transcribe(
             audio_file,
-            beam_size=self.beam_size,
-            word_timestamps=True
+            beam_size=1,  # greedy, fast
+            temperature=[0.0],  # deterministic
+            best_of=1,
+            language="en",  # set your language; adjust if needed
+            condition_on_previous_text=False,
+            vad_filter=True,
+            vad_parameters={"min_silence_duration_ms": 500},
+            compression_ratio_threshold=2.4,
+            log_prob_threshold=-1.0,
+            no_speech_threshold=0.6,
+            word_timestamps=True,
+            task="transcribe"
         )
         
         # Convert segments to list and build transcript

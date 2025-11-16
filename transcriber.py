@@ -14,7 +14,7 @@ class AudioTranscriber:
     """Core audio transcription class with support for multiple backends."""
     
     def __init__(self, model_name: str = "base", device: Optional[str] = None, 
-                 backend: str = "auto", beam_size: int = 5):
+                 backend: str = "auto", beam_size: int = 1):
         """
         Initialize the transcriber with a Whisper model.
         
