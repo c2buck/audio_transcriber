@@ -2134,8 +2134,8 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
         </div>
 """
     
-    # Generate Table of Contents with recordings and DV scores (if available)
-    if transcriptions:
+    # Generate Table of Contents with recordings and DV scores (only when DV analysis is provided)
+    if transcriptions and dv_analysis:
         _progress("Creating table of contents...", 10)
         html_content += """
         <div class="toc-container" style="background: white; padding: 20px; margin: 20px 0; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
