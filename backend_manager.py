@@ -442,10 +442,13 @@ class UnifiedTranscriber:
         if progress_callback:
             progress_callback(f"Starting faster-whisper transcription (beam_size: {self.beam_size})...")
         
+        # Optional initial prompt: set via environment variable WHISPER_INITIAL_PROMPT
+        initial_prompt = os.environ.get("WHISPER_INITIAL_PROMPT", None)
+
         segments, info = self.model.transcribe(
             audio_file,
             beam_size=1,  # greedy, fast
-            temperature=[0.0],  # deterministic
+            temperature=[0.0, 0.2],  # deterministic, with light fallback on low-confidence
             best_of=1,
             language="en",  # set your language; adjust if needed
             condition_on_previous_text=False,
@@ -455,6 +458,7 @@ class UnifiedTranscriber:
             log_prob_threshold=-1.0,
             no_speech_threshold=0.6,
             word_timestamps=True,
+            initial_prompt=initial_prompt if initial_prompt else None,
             task="transcribe"
         )
         
