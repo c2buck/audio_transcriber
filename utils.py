@@ -1228,6 +1228,20 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             border-radius: 4px;
             overflow: hidden;
         }}
+        .transcription-content[aria-hidden="true"] {{
+            position: absolute;
+            left: -9999px;
+            visibility: hidden;
+            user-select: none;
+            pointer-events: none;
+        }}
+        .full-text[aria-hidden="true"] {{
+            position: absolute;
+            left: -9999px;
+            visibility: hidden;
+            user-select: none;
+            pointer-events: none;
+        }}
         .segment {{
             display: flex;
             border-bottom: 1px solid #e9ecef;
@@ -1635,7 +1649,9 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             if (segmentView.style.display === 'none' || segmentView.style.display === '') {{
                 // Show segments view
                 segmentView.style.display = 'block';
+                segmentView.setAttribute('aria-hidden', 'false');
                 fullView.style.display = 'none';
+                fullView.setAttribute('aria-hidden', 'true');
                 toggleBtn.textContent = 'Show Full Text';
                 
                 // Initialize segment highlighting when segments view is shown
@@ -1643,7 +1659,9 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             }} else {{
                 // Show full text view
                 segmentView.style.display = 'none';
+                segmentView.setAttribute('aria-hidden', 'true');
                 fullView.style.display = 'block';
+                fullView.setAttribute('aria-hidden', 'false');
                 toggleBtn.textContent = 'Show Timestamped Segments';
             }}
         }}
@@ -1743,8 +1761,25 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 return;
             }}
             
-            // Get all searchable elements (already indexed)
-            const searchableElements = Array.from(document.querySelectorAll('.segment-text, .full-text, .filename'));
+            // Get all searchable elements (already indexed) - only search visible elements
+            // Filter out elements that are hidden (aria-hidden="true" or inside hidden containers)
+            const allElements = Array.from(document.querySelectorAll('.segment-text, .full-text, .filename'));
+            const searchableElements = allElements.filter(el => {{
+                // Check if element or its parent is hidden
+                const parent = el.closest('.transcription-content, .full-text');
+                if (parent && parent.getAttribute('aria-hidden') === 'true') {{
+                    return false;
+                }}
+                // Check if element itself is hidden
+                if (el.getAttribute('aria-hidden') === 'true') {{
+                    return false;
+                }}
+                // Check if parent container is hidden via display:none
+                if (parent && (parent.style.display === 'none' || window.getComputedStyle(parent).display === 'none')) {{
+                    return false;
+                }}
+                return true;
+            }});
             const totalElements = searchableElements.length;
             let currentIndex = 0;
             let matchCount = 0;
@@ -2332,7 +2367,7 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 <button id="toggle-{idx}" class="toggle-btn" onclick="toggleTranscriptionView({idx})">Show Timestamped Segments</button>
             </div>
             
-            <div id="segments-{idx}" class="transcription-content" style="display: none;">
+            <div id="segments-{idx}" class="transcription-content" style="display: none;" aria-hidden="true" tabindex="-1">
 """
                 for segment in segments:
                     start_time = format_time(segment.get('start', 0))
@@ -2361,7 +2396,7 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                 html_content += f"""
             </div>
             
-            <div id="full-{idx}" class="full-text">
+            <div id="full-{idx}" class="full-text" aria-hidden="false">
 {_highlight_keywords(item.get('transcription', ''), dv_analysis_for_file, category_weights) if dv_analysis else escape_html(item.get('transcription', ''))}
             </div>
 """
