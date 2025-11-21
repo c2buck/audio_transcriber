@@ -2339,11 +2339,15 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
                     start_seconds = segment.get('start', 0)
                     segment_text = segment.get('text', '').strip()
                     # Highlight keywords in segment text (progress: 70-85% for highlighting)
-                    if idx == total_items - 1:  # Only update on last transcription
+                    # Only apply highlighting if word list detection is enabled (dv_analysis is not None)
+                    if dv_analysis and idx == total_items - 1:  # Only update on last transcription
                         highlight_progress = 70 + int((len(segments) / max(1, sum(len(t.get('segments', [])) for t in transcriptions if t.get('success'))) * 15))
                         if progress_callback and len(segments) > 0:
                             _progress(f"Applying keyword highlighting...", min(85, highlight_progress))
-                    highlighted_segment = _highlight_keywords(segment_text, dv_analysis_for_file, category_weights)
+                    if dv_analysis:
+                        highlighted_segment = _highlight_keywords(segment_text, dv_analysis_for_file, category_weights)
+                    else:
+                        highlighted_segment = escape_html(segment_text)
                     html_content += f"""
                 <div class="segment">
                     <div class="timestamp-col">
@@ -2358,12 +2362,15 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             </div>
             
             <div id="full-{idx}" class="full-text">
-{_highlight_keywords(item.get('transcription', ''), dv_analysis_for_file, category_weights)}
+{_highlight_keywords(item.get('transcription', ''), dv_analysis_for_file, category_weights) if dv_analysis else escape_html(item.get('transcription', ''))}
             </div>
 """
             else:
                 # No segments available, show full text only
-                highlighted_full_text = _highlight_keywords(item.get('transcription', ''), dv_analysis_for_file, category_weights)
+                if dv_analysis:
+                    highlighted_full_text = _highlight_keywords(item.get('transcription', ''), dv_analysis_for_file, category_weights)
+                else:
+                    highlighted_full_text = escape_html(item.get('transcription', ''))
                 html_content += f"""
             <div class="full-text">
 {highlighted_full_text}
