@@ -1983,14 +1983,115 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
             
             // Find the highlight element with matching index
             const highlight = document.querySelector(`.search-highlight[data-match-index="${{index}}"]`);
-            if (highlight) {{
-                highlight.classList.add('active');
-                highlight.scrollIntoView({{
-                    behavior: 'smooth',
-                    block: 'center',
-                    inline: 'nearest'
-                }});
+            if (!highlight) return;
+            
+            // Find parent transcription container (recording-{idx})
+            let parentContainer = highlight.closest('[id^="recording-"]');
+            if (!parentContainer) {{
+                // Fallback: find any parent with a visible transcription
+                parentContainer = highlight.closest('.transcription');
             }}
+            
+            // Ensure the parent container is visible
+            if (parentContainer) {{
+                // Check if the transcription is collapsed and expand it
+                const transcriptDiv = parentContainer.querySelector('.transcription-content');
+                if (transcriptDiv && transcriptDiv.style.display === 'none') {{
+                    // Find the toggle button and click it to expand
+                    const transcriptionId = parentContainer.id.replace('recording-', '');
+                    const toggleBtn = document.getElementById('toggle-' + transcriptionId);
+                    if (toggleBtn) {{
+                        toggleBtn.click();
+                    }}
+                }}
+                
+                // Ensure the transcription container itself is visible
+                const containerStyle = window.getComputedStyle(parentContainer);
+                if (containerStyle.display === 'none') {{
+                    parentContainer.style.display = 'block';
+                }}
+            }}
+            
+            // Check if highlight is in a hidden view and switch to correct view
+            // Find the segments view container (parent with id starting with "segments-")
+            let segmentsView = highlight.closest('.transcription-content');
+            if (segmentsView && segmentsView.id && segmentsView.id.startsWith('segments-')) {{
+                // Match is in segments view - ensure it's visible
+                const transcriptionId = segmentsView.id.replace('segments-', '');
+                const toggleBtn = document.getElementById('toggle-' + transcriptionId);
+                
+                if (segmentsView && (segmentsView.style.display === 'none' || window.getComputedStyle(segmentsView).display === 'none')) {{
+                    if (toggleBtn) {{
+                        toggleBtn.click();
+                    }}
+                }}
+            }} else {{
+                // Check if in full text view
+                const fullTextView = highlight.closest('.full-text');
+                if (fullTextView && fullTextView.id && fullTextView.id.startsWith('full-')) {{
+                    // Match is in full text view - ensure it's visible
+                    const transcriptionId = fullTextView.id.replace('full-', '');
+                    const toggleBtn = document.getElementById('toggle-' + transcriptionId);
+                    
+                    if (fullTextView && (fullTextView.style.display === 'none' || window.getComputedStyle(fullTextView).display === 'none')) {{
+                        if (toggleBtn) {{
+                            toggleBtn.click();
+                        }}
+                    }}
+                }}
+            }}
+            
+            // Wait for DOM updates and ensure element is visible, then scroll
+            const attemptScroll = (attempt = 1, maxAttempts = 5) => {{
+                // Re-find the highlight in case DOM was updated
+                const currentHighlight = document.querySelector(`.search-highlight[data-match-index="${{index}}"]`);
+                if (!currentHighlight) return;
+                
+                // Check if element is visible
+                const rect = currentHighlight.getBoundingClientRect();
+                const isVisible = rect.width > 0 && rect.height > 0 && 
+                                 window.getComputedStyle(currentHighlight).display !== 'none' &&
+                                 window.getComputedStyle(currentHighlight).visibility !== 'hidden';
+                
+                if (isVisible || attempt >= maxAttempts) {{
+                    // Element is visible or we've tried enough times
+                    currentHighlight.classList.add('active');
+                    
+                    // Scroll to the highlight
+                    try {{
+                        currentHighlight.scrollIntoView({{
+                            behavior: 'smooth',
+                            block: 'center',
+                            inline: 'nearest'
+                        }});
+                    }} catch (e) {{
+                        // Fallback: scroll parent container into view first
+                        if (parentContainer) {{
+                            parentContainer.scrollIntoView({{
+                                behavior: 'smooth',
+                                block: 'start'
+                            }});
+                            
+                            // Then try scrolling to highlight again after a delay
+                            setTimeout(() => {{
+                                if (currentHighlight) {{
+                                    currentHighlight.scrollIntoView({{
+                                        behavior: 'smooth',
+                                        block: 'center',
+                                        inline: 'nearest'
+                                    }});
+                                }}
+                            }}, 300);
+                        }}
+                    }}
+                }} else {{
+                    // Element not yet visible, try again after a short delay
+                    setTimeout(() => attemptScroll(attempt + 1, maxAttempts), 100);
+                }}
+            }};
+            
+            // Start attempting to scroll after initial DOM update delay
+            setTimeout(() => attemptScroll(), 100);
         }}
         
         function navigateMatch(direction) {{
