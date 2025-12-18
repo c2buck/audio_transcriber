@@ -338,6 +338,30 @@ class AudioTranscriberGUI(QMainWindow):
         
         layout.addWidget(model_group)
         
+        # Language Selection Group
+        language_group = QGroupBox("Language & Translation")
+        language_layout = QVBoxLayout(language_group)
+        
+        # Language selection
+        language_selection_layout = QHBoxLayout()
+        language_selection_layout.addWidget(QLabel("Language:"))
+        
+        self.language_combo = QComboBox()
+        self.language_combo.addItem("Auto Detect", None)
+        self.language_combo.addItem("English", "en")
+        self.language_combo.currentTextChanged.connect(self.on_language_changed)
+        language_selection_layout.addWidget(self.language_combo)
+        
+        language_layout.addLayout(language_selection_layout)
+        
+        # Language description
+        self.language_description = QLabel("Auto-detect language and transcribe in detected language")
+        self.language_description.setWordWrap(True)
+        self.language_description.setStyleSheet("color: gray; font-size: 11px;")
+        language_layout.addWidget(self.language_description)
+        
+        layout.addWidget(language_group)
+        
         # Device Info Group
         device_group = QGroupBox("Device Information")
         device_layout = QVBoxLayout(device_group)
@@ -691,6 +715,25 @@ class AudioTranscriberGUI(QMainWindow):
         # Save beam size preference
         self.settings.setValue("beam_size", beam_size)
     
+    def on_language_changed(self):
+        """Handle language selection change."""
+        language = self.language_combo.currentData()
+        language_display = self.language_combo.currentText()
+        
+        # Update language description
+        if language is None:
+            self.language_description.setText("Auto-detect language and transcribe in detected language")
+        else:
+            self.language_description.setText(f"Force {language_display} language transcription")
+        
+        # Reset transcriber to use new language setting
+        self.transcriber = None
+        
+        self.log(f"Language setting changed to: {language_display}", "INFO")
+        
+        # Save language preference
+        self.settings.setValue("preferred_language", language if language else "auto")
+    
     def on_device_changed(self):
         """Handle device selection change."""
         self.transcriber = None  # Reset transcriber to use new device
@@ -861,11 +904,15 @@ class AudioTranscriberGUI(QMainWindow):
             backend_name = self.backend_combo.currentData()
             beam_size = int(self.beam_size_combo.currentText())
             
+            # Get language setting
+            language = self.language_combo.currentData()
+            
             self.transcriber = AudioTranscriber(
                 model_name=model_name,
                 device=selected_device,
                 backend=backend_name,
-                beam_size=beam_size
+                beam_size=beam_size,
+                language=language
             )
         
         # Reset progress
@@ -877,6 +924,7 @@ class AudioTranscriberGUI(QMainWindow):
         self.log(f"Backend: {self.backend_combo.currentText()}", "INFO")
         self.log(f"Model: {self.model_combo.currentText()}", "INFO")
         self.log(f"Processing device: {self.device_combo.currentText()}", "INFO")
+        self.log(f"Language: {self.language_combo.currentText()}", "INFO")
         if self.backend_combo.currentData() == "faster":
             self.log(f"Beam size: {self.beam_size_combo.currentText()}", "INFO")
         
@@ -889,6 +937,7 @@ class AudioTranscriberGUI(QMainWindow):
         self.model_combo.setEnabled(False)
         self.beam_size_combo.setEnabled(False)
         self.device_combo.setEnabled(False)
+        self.language_combo.setEnabled(False)
         
         # Start worker thread
         self.worker_thread = TranscriptionWorker(self.transcriber, input_folder, output_folder, create_zip=True)
@@ -943,6 +992,7 @@ class AudioTranscriberGUI(QMainWindow):
         self.model_combo.setEnabled(True)
         self.beam_size_combo.setEnabled(True)
         self.device_combo.setEnabled(True)
+        self.language_combo.setEnabled(True)
         
         # Check if transcription was cancelled
         if result.get('cancelled', False):
@@ -1410,6 +1460,20 @@ class AudioTranscriberGUI(QMainWindow):
             if self.beam_size_combo.itemText(i) == preferred_beam_size:
                 self.beam_size_combo.setCurrentIndex(i)
                 break
+        
+        # Load language preference
+        preferred_language = self.settings.value("preferred_language", "auto")
+        if hasattr(self, 'language_combo'):
+            if preferred_language == "auto" or preferred_language == "":
+                self.language_combo.setCurrentIndex(0)  # Auto Detect
+            else:
+                # Find the item with matching data
+                for i in range(self.language_combo.count()):
+                    if self.language_combo.itemData(i) == preferred_language:
+                        self.language_combo.setCurrentIndex(i)
+                        break
+            # Update description to reflect current selection
+            self.on_language_changed()
         
         # Device preference will be loaded in populate_device_combo()
         

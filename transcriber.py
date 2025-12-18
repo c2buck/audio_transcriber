@@ -14,7 +14,7 @@ class AudioTranscriber:
     """Core audio transcription class with support for multiple backends."""
     
     def __init__(self, model_name: str = "base", device: Optional[str] = None, 
-                 backend: str = "auto", beam_size: int = 1):
+                 backend: str = "auto", beam_size: int = 1, language: Optional[str] = None):
         """
         Initialize the transcriber with a Whisper model.
         
@@ -23,11 +23,13 @@ class AudioTranscriber:
             device: Device to use ("cuda", "cpu", "mps", or None for auto-detection)
             backend: Backend to use ("auto", "openai", "faster")
             beam_size: Beam size for faster-whisper (ignored for OpenAI)
+            language: Language code (e.g., "en" for English) or None for auto-detect
         """
         self.model_name = model_name
         self.device = self._get_device() if device is None else device
         self.backend = backend
         self.beam_size = beam_size
+        self.language = language
         self.backend_manager = BackendManager()
         self.unified_transcriber = None
         self.is_model_loaded = False
@@ -75,7 +77,8 @@ class AudioTranscriber:
                 backend=self.backend,
                 model_name=self.model_name,
                 device=self.device,
-                beam_size=self.beam_size
+                beam_size=self.beam_size,
+                language=self.language
             )
             
             # Log which backend was actually selected

@@ -217,7 +217,7 @@ class UnifiedTranscriber:
     """Unified interface for both OpenAI Whisper and faster-whisper backends."""
     
     def __init__(self, backend: str = "auto", model_name: str = "base", 
-                 device: Optional[str] = None, beam_size: int = 5):
+                 device: Optional[str] = None, beam_size: int = 5, language: Optional[str] = None):
         """
         Initialize the unified transcriber.
         
@@ -226,10 +226,12 @@ class UnifiedTranscriber:
             model_name: Model size to use
             device: Device to use ("cuda", "cpu", "mps", or None for auto-detection)
             beam_size: Beam size for faster-whisper (ignored for OpenAI)
+            language: Language code (e.g., "en" for English) or None for auto-detect
         """
         self.backend_manager = BackendManager()
         self.beam_size = beam_size
         self.device = self._get_device() if device is None else device
+        self.language = language
         
         # Resolve backend
         if backend == "auto":
@@ -432,15 +434,21 @@ class UnifiedTranscriber:
     def _transcribe_openai(self, audio_file: str, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Transcribe using OpenAI Whisper."""
         if progress_callback:
-            progress_callback("Starting OpenAI Whisper transcription...")
+            if self.language:
+                progress_callback(f"Starting OpenAI Whisper transcription (language: {self.language})...")
+            else:
+                progress_callback("Starting OpenAI Whisper transcription (auto-detecting language)...")
         
-        result = self.model.transcribe(audio_file)
+        result = self.model.transcribe(audio_file, language=self.language)
         return result
     
     def _transcribe_faster(self, audio_file: str, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Transcribe using faster-whisper."""
         if progress_callback:
-            progress_callback(f"Starting faster-whisper transcription (beam_size: {self.beam_size})...")
+            if self.language:
+                progress_callback(f"Starting faster-whisper transcription (beam_size: {self.beam_size}, language: {self.language})...")
+            else:
+                progress_callback(f"Starting faster-whisper transcription (beam_size: {self.beam_size}, auto-detecting language)...")
         
         # Optional initial prompt: set via environment variable WHISPER_INITIAL_PROMPT
         initial_prompt = os.environ.get("WHISPER_INITIAL_PROMPT", None)
@@ -450,7 +458,7 @@ class UnifiedTranscriber:
             beam_size=1,  # greedy, fast
             temperature=[0.0, 0.2],  # deterministic, with light fallback on low-confidence
             best_of=1,
-            language="en",  # set your language; adjust if needed
+            language=self.language,  # None for auto-detect, "en" for English, etc.
             condition_on_previous_text=False,
             vad_filter=True,
             vad_parameters={"min_silence_duration_ms": 500},
