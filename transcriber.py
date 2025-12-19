@@ -397,14 +397,9 @@ class AudioTranscriber:
             instructions_content = """INSTRUCTIONS FOR ACCESSING TRANSCRIPTION RESULTS
 ====================================================
 
-INTEL ONLY - NOT FOR DISCLOSURE
+INTEL ONLY - PACKAGE NOT FOR DISCLOSURE
 
-====================================================
-IMPORTANT: DO NOT MOVE THE DIRECTORY AFTER UNZIPPING
-====================================================
-
-The HTML file and audio files use relative paths. Moving the unzipped 
-folder will break the links between the HTML report and audio files.
+TRANSCRIPTS 90-95% ACCURATE - ALWAYS REVIEW AUDIO AND TRANSCRIPT TO ENSURE ACCURACY
 
 ====================================================
 HOW TO ACCESS THE FILES
@@ -414,6 +409,13 @@ HOW TO ACCESS THE FILES
 2. DO NOT move or rename the extracted folder after unzipping
 3. Navigate to the extracted folder
 4. Double-click the HTML file (transcription_report.html) to open it in your web browser
+
+====================================================
+IMPORTANT: DO NOT MOVE THE DIRECTORY AFTER UNZIPPING
+====================================================
+
+The HTML file and audio files use relative paths. Moving the unzipped 
+folder will break the links between the HTML report and audio files.
 
 ====================================================
 HOW TO PLAY AUDIO
@@ -429,7 +431,7 @@ HOW TO PLAY AUDIO
 SEARCHING THE DOCUMENT
 ====================================================
 
-1. Press Ctrl+F (or Cmd+F on Mac) to open the search bar
+1. Press Ctrl+F to open the search bar
 2. Type keywords or phrases you want to find
 3. The browser will highlight all matching text in the document
 4. Use the up/down arrows in the search bar to navigate between matches
