@@ -284,13 +284,15 @@ class AudioTranscriberGUI(QMainWindow):
         # Subject name
         naming_layout.addWidget(QLabel("Subject Name:"), 0, 0)
         self.subject_name_input = QLineEdit()
-        self.subject_name_input.setPlaceholderText("Enter subject name")
+        self.subject_name_input.setPlaceholderText("Enter subject name e.g. SMITH, John")
+        self.subject_name_input.textChanged.connect(self.clear_subject_name_error)
         naming_layout.addWidget(self.subject_name_input, 0, 1)
         
         # Case No.
         naming_layout.addWidget(QLabel("Case No.:"), 1, 0)
         self.case_no_input = QLineEdit()
-        self.case_no_input.setPlaceholderText("Enter case number")
+        self.case_no_input.setPlaceholderText("Enter case number e.g. CO25XXXXX, QP25XXXX")
+        self.case_no_input.textChanged.connect(self.clear_case_no_error)
         naming_layout.addWidget(self.case_no_input, 1, 1)
         
         layout.addWidget(naming_group)
@@ -883,6 +885,18 @@ class AudioTranscriberGUI(QMainWindow):
             self.output_folder_label.setText(folder)
             self.settings.setValue("output_folder", folder)
     
+    def highlight_error(self, line_edit: QLineEdit):
+        """Highlight a line edit field in red to indicate an error."""
+        line_edit.setStyleSheet("background-color: #ffcccc; border: 2px solid #ff0000; padding: 5px;")
+    
+    def clear_subject_name_error(self):
+        """Clear error highlighting from subject name field."""
+        self.subject_name_input.setStyleSheet("")
+    
+    def clear_case_no_error(self):
+        """Clear error highlighting from case no field."""
+        self.case_no_input.setStyleSheet("")
+    
     def update_file_count(self):
         """Update the count of audio files in the selected folder."""
         input_folder = self.input_folder_label.text()
@@ -915,6 +929,28 @@ class AudioTranscriberGUI(QMainWindow):
         
         if output_folder == "No folder selected":
             QMessageBox.warning(self, "Warning", "Please select an output folder.")
+            return
+        
+        # Validate Subject Name and Case No. fields
+        subject_name = self.subject_name_input.text().strip()
+        case_no = self.case_no_input.text().strip()
+        
+        has_error = False
+        if not subject_name:
+            self.highlight_error(self.subject_name_input)
+            has_error = True
+        
+        if not case_no:
+            self.highlight_error(self.case_no_input)
+            has_error = True
+        
+        if has_error:
+            QMessageBox.warning(
+                self, 
+                "Validation Error", 
+                "Both Subject Name and Case No. are required to proceed.\n\n"
+                "Please fill in both fields before starting transcription."
+            )
             return
         
         # Create transcriber if needed
@@ -959,18 +995,8 @@ class AudioTranscriberGUI(QMainWindow):
         self.device_combo.setEnabled(False)
         self.language_combo.setEnabled(False)
         
-        # Get filename prefix from input fields
-        subject_name = self.subject_name_input.text().strip()
-        case_no = self.case_no_input.text().strip()
-        filename_prefix = None
-        if subject_name or case_no:
-            # Combine subject name and case no with space
-            parts = []
-            if subject_name:
-                parts.append(subject_name)
-            if case_no:
-                parts.append(case_no)
-            filename_prefix = " ".join(parts)
+        # Get filename prefix from input fields (already validated above)
+        filename_prefix = f"{subject_name} {case_no}"
         
         # Start worker thread
         self.worker_thread = TranscriptionWorker(self.transcriber, input_folder, output_folder, create_zip=True, filename_prefix=filename_prefix)
