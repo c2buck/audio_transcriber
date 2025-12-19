@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QStatusBar, QMenuBar, QMenu, QCheckBox,
     QTabWidget, QScrollArea, QLineEdit
 )
-from PySide6.QtCore import QThread, Signal, QTimer, Qt, QSettings
+from PySide6.QtCore import QThread, Signal, QTimer, Qt
 from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor
 
 from transcriber import AudioTranscriber
@@ -106,7 +106,6 @@ class AudioTranscriberGUI(QMainWindow):
         
         self.transcriber = None
         self.worker_thread = None
-        self.settings = QSettings("AudioTranscriber", "Settings")
         self.backend_manager = BackendManager()
         
         # Initialize DV Review Analyzer
@@ -118,9 +117,8 @@ class AudioTranscriberGUI(QMainWindow):
         
         # Initialize UI
         self.init_ui()
-        self.load_settings()
         
-        # Initialize backend and device selection
+        # Initialize backend and device selection with defaults
         self.populate_backend_combo()
         self.populate_device_combo()
         self.update_model_combo()
@@ -624,8 +622,16 @@ class AudioTranscriberGUI(QMainWindow):
         for backend in available_backends:
             self.backend_combo.addItem(backend.display_name, backend.name)
         
-        # Set default to auto
-        self.backend_combo.setCurrentIndex(0)
+        # Default to faster-whisper if available, otherwise auto
+        faster_index = -1
+        for i in range(self.backend_combo.count()):
+            if self.backend_combo.itemData(i) == "faster":
+                faster_index = i
+                break
+        if faster_index >= 0:
+            self.backend_combo.setCurrentIndex(faster_index)
+        else:
+            self.backend_combo.setCurrentIndex(0)  # Fallback to auto
     
     def update_model_combo(self):
         """Update model combo based on selected backend."""
@@ -646,11 +652,21 @@ class AudioTranscriberGUI(QMainWindow):
         
         self.model_combo.addItems(models)
         
-        # Set default to base if available
-        if "base" in models:
-            self.model_combo.setCurrentText("base")
-        elif models:
-            self.model_combo.setCurrentIndex(0)
+        # Set default based on backend - default to large-v3 for faster-whisper
+        if backend_name == "faster" or backend_name == "auto":
+            # Default to large-v3 for faster-whisper
+            if "large-v3" in models:
+                self.model_combo.setCurrentText("large-v3")
+            elif "base" in models:
+                self.model_combo.setCurrentText("base")
+            elif models:
+                self.model_combo.setCurrentIndex(0)
+        else:
+            # For other backends, default to base
+            if "base" in models:
+                self.model_combo.setCurrentText("base")
+            elif models:
+                self.model_combo.setCurrentIndex(0)
         
         # Update beam size visibility
         self.update_beam_size_visibility()
@@ -705,9 +721,6 @@ class AudioTranscriberGUI(QMainWindow):
         self.transcriber = None
         
         self.log(f"Backend changed to: {backend_display}", "INFO")
-        
-        # Save backend preference
-        self.settings.setValue("preferred_backend", backend_name)
     
     def on_model_changed(self):
         """Handle model selection change."""
@@ -721,9 +734,6 @@ class AudioTranscriberGUI(QMainWindow):
         self.transcriber = None
         
         self.log(f"Model changed to: {model_name}", "INFO")
-        
-        # Save model preference
-        self.settings.setValue("preferred_model", model_name)
     
     def on_beam_size_changed(self):
         """Handle beam size change."""
@@ -733,9 +743,6 @@ class AudioTranscriberGUI(QMainWindow):
         self.transcriber = None
         
         self.log(f"Beam size changed to: {beam_size}", "INFO")
-        
-        # Save beam size preference
-        self.settings.setValue("beam_size", beam_size)
     
     def on_language_changed(self):
         """Handle language selection change."""
@@ -752,9 +759,6 @@ class AudioTranscriberGUI(QMainWindow):
         self.transcriber = None
         
         self.log(f"Language setting changed to: {language_display}", "INFO")
-        
-        # Save language preference
-        self.settings.setValue("preferred_language", language if language else "auto")
     
     def on_device_changed(self):
         """Handle device selection change."""
@@ -773,10 +777,6 @@ class AudioTranscriberGUI(QMainWindow):
             self.log("💡 Apple Silicon acceleration enabled", "SUCCESS")
         else:
             self.log("💡 CPU processing selected - consider GPU for faster performance", "INFO")
-        
-        # Save device preference
-        if device:
-            self.settings.setValue("preferred_device", device)
     
     def get_available_devices(self):
         """Get list of available devices with their display names."""
@@ -815,17 +815,18 @@ class AudioTranscriberGUI(QMainWindow):
         for device_id, display_name in devices:
             self.device_combo.addItem(display_name, device_id)
         
-        # Set default selection based on saved preference or auto-detection
-        preferred_device = self.settings.value("preferred_device", None)
+        # Default to GPU (cuda) if available, otherwise use auto-detection
+        gpu_index = -1
+        for i in range(self.device_combo.count()):
+            if self.device_combo.itemData(i) == "cuda":
+                gpu_index = i
+                break
         
-        if preferred_device:
-            # Try to find and select the preferred device
-            for i in range(self.device_combo.count()):
-                if self.device_combo.itemData(i) == preferred_device:
-                    self.device_combo.setCurrentIndex(i)
-                    break
+        if gpu_index >= 0:
+            # GPU available, select it by default
+            self.device_combo.setCurrentIndex(gpu_index)
         else:
-            # Auto-select the best available device
+            # No GPU, use auto-detection
             try:
                 temp_transcriber = AudioTranscriber()
                 auto_device = temp_transcriber._get_device()
@@ -869,21 +870,19 @@ class AudioTranscriberGUI(QMainWindow):
     def select_input_folder(self):
         """Select input folder containing audio files."""
         folder = QFileDialog.getExistingDirectory(
-            self, "Select Input Folder", self.settings.value("input_folder", "")
+            self, "Select Input Folder", ""
         )
         if folder:
             self.input_folder_label.setText(folder)
-            self.settings.setValue("input_folder", folder)
             self.update_file_count()
     
     def select_output_folder(self):
         """Select output folder for transcriptions."""
         folder = QFileDialog.getExistingDirectory(
-            self, "Select Output Folder", self.settings.value("output_folder", "")
+            self, "Select Output Folder", ""
         )
         if folder:
             self.output_folder_label.setText(folder)
-            self.settings.setValue("output_folder", folder)
     
     def highlight_error(self, line_edit: QLineEdit):
         """Highlight a line edit field in red to indicate an error."""
@@ -1437,15 +1436,15 @@ class AudioTranscriberGUI(QMainWindow):
     
     def toggle_theme(self):
         """Toggle between dark and light themes."""
-        current_theme = self.settings.value("theme", "light")
+        # Get current theme from stylesheet or default to light
+        current_stylesheet = self.styleSheet()
+        current_theme = "dark" if current_stylesheet and "background-color: #2b2b2b" in current_stylesheet else "light"
         new_theme = "dark" if current_theme == "light" else "light"
-        self.settings.setValue("theme", new_theme)
-        self.apply_theme()
+        self.apply_theme(new_theme)
     
     def toggle_wordlist(self):
         """Toggle wordlist analysis feature on/off."""
         self.wordlist_enabled = self.wordlist_toggle_btn.isChecked()
-        self.settings.setValue("wordlist_enabled", self.wordlist_enabled)
         
         if self.wordlist_enabled:
             self.wordlist_toggle_btn.setText("Disable Word List Detection")
@@ -1458,9 +1457,8 @@ class AudioTranscriberGUI(QMainWindow):
             self.wordlist_status_label.setStyleSheet("color: gray; font-size: 11px;")
             self.log("Wordlist analysis disabled", "INFO")
     
-    def apply_theme(self):
+    def apply_theme(self, theme="light"):
         """Apply the selected theme."""
-        theme = self.settings.value("theme", "light")
         
         if theme == "dark":
             self.setStyleSheet("""
@@ -1526,68 +1524,6 @@ class AudioTranscriberGUI(QMainWindow):
                          "• HTML report generation\n"
                          "• Dark/Light theme support")
     
-    def load_settings(self):
-        """Load application settings."""
-        input_folder = self.settings.value("input_folder", "")
-        output_folder = self.settings.value("output_folder", "")
-        
-        if input_folder:
-            self.input_folder_label.setText(input_folder)
-            self.update_file_count()
-        
-        if output_folder:
-            self.output_folder_label.setText(output_folder)
-        
-        # Load backend preference
-        preferred_backend = self.settings.value("preferred_backend", "auto")
-        for i in range(self.backend_combo.count()):
-            if self.backend_combo.itemData(i) == preferred_backend:
-                self.backend_combo.setCurrentIndex(i)
-                break
-        
-        # Load model preference
-        preferred_model = self.settings.value("preferred_model", "base")
-        for i in range(self.model_combo.count()):
-            if self.model_combo.itemText(i) == preferred_model:
-                self.model_combo.setCurrentIndex(i)
-                break
-        
-        # Load beam size preference
-        preferred_beam_size = self.settings.value("beam_size", "1")
-        for i in range(self.beam_size_combo.count()):
-            if self.beam_size_combo.itemText(i) == preferred_beam_size:
-                self.beam_size_combo.setCurrentIndex(i)
-                break
-        
-        # Load language preference
-        preferred_language = self.settings.value("preferred_language", "auto")
-        if hasattr(self, 'language_combo'):
-            if preferred_language == "auto" or preferred_language == "":
-                self.language_combo.setCurrentIndex(0)  # Auto Detect
-            else:
-                # Find the item with matching data
-                for i in range(self.language_combo.count()):
-                    if self.language_combo.itemData(i) == preferred_language:
-                        self.language_combo.setCurrentIndex(i)
-                        break
-            # Update description to reflect current selection
-            self.on_language_changed()
-        
-        # Device preference will be loaded in populate_device_combo()
-        
-        # Load wordlist enabled preference
-        self.wordlist_enabled = self.settings.value("wordlist_enabled", False, type=bool)
-        if hasattr(self, 'wordlist_toggle_btn'):
-            self.wordlist_toggle_btn.setChecked(self.wordlist_enabled)
-            if self.wordlist_enabled:
-                self.wordlist_toggle_btn.setText("Disable Word List Detection")
-                self.wordlist_status_label.setText("Enabled - Will analyze transcriptions")
-                self.wordlist_status_label.setStyleSheet("color: #28a745; font-size: 11px; font-weight: bold;")
-            else:
-                self.wordlist_toggle_btn.setText("Enable Word List Detection")
-                self.wordlist_status_label.setText("Disabled")
-                self.wordlist_status_label.setStyleSheet("color: gray; font-size: 11px;")
-    
     def closeEvent(self, event):
         """Handle application close event."""
         try:
@@ -1644,10 +1580,6 @@ class AudioTranscriberGUI(QMainWindow):
                     torch.cuda.empty_cache()
             except Exception:
                 pass
-            
-            # Save settings before closing
-            if hasattr(self, 'settings'):
-                self.settings.sync()
             
             event.accept()
         except Exception as e:
