@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QLabel, QPushButton, QFileDialog, QComboBox,
     QTextEdit, QProgressBar, QGroupBox, QFrame, QSplitter,
     QMessageBox, QStatusBar, QMenuBar, QMenu, QCheckBox,
-    QTabWidget, QScrollArea
+    QTabWidget, QScrollArea, QLineEdit
 )
 from PySide6.QtCore import QThread, Signal, QTimer, Qt, QSettings
 from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor
@@ -28,12 +28,13 @@ class TranscriptionWorker(QThread):
     file_progress = Signal(int, int)
     finished = Signal(dict)
     
-    def __init__(self, transcriber: AudioTranscriber, input_dir: str, output_dir: str, create_zip: bool = True):
+    def __init__(self, transcriber: AudioTranscriber, input_dir: str, output_dir: str, create_zip: bool = True, filename_prefix: Optional[str] = None):
         super().__init__()
         self.transcriber = transcriber
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.create_zip = create_zip
+        self.filename_prefix = filename_prefix
         self.is_cancelled = False
     
     def run(self):
@@ -57,7 +58,8 @@ class TranscriptionWorker(QThread):
                 progress_callback,
                 file_progress_callback,
                 self.create_zip,
-                cancellation_check
+                cancellation_check,
+                self.filename_prefix
             )
             
             if not self.is_cancelled:
@@ -274,6 +276,24 @@ class AudioTranscriberGUI(QMainWindow):
         file_layout.addWidget(self.select_output_btn, 1, 2)
         
         layout.addWidget(file_group)
+        
+        # File Naming Group
+        naming_group = QGroupBox("File Naming")
+        naming_layout = QGridLayout(naming_group)
+        
+        # Subject name
+        naming_layout.addWidget(QLabel("Subject Name:"), 0, 0)
+        self.subject_name_input = QLineEdit()
+        self.subject_name_input.setPlaceholderText("Enter subject name")
+        naming_layout.addWidget(self.subject_name_input, 0, 1)
+        
+        # Case No.
+        naming_layout.addWidget(QLabel("Case No.:"), 1, 0)
+        self.case_no_input = QLineEdit()
+        self.case_no_input.setPlaceholderText("Enter case number")
+        naming_layout.addWidget(self.case_no_input, 1, 1)
+        
+        layout.addWidget(naming_group)
         
         # Backend Selection Group
         backend_group = QGroupBox("Transcription Backend")
@@ -939,8 +959,21 @@ class AudioTranscriberGUI(QMainWindow):
         self.device_combo.setEnabled(False)
         self.language_combo.setEnabled(False)
         
+        # Get filename prefix from input fields
+        subject_name = self.subject_name_input.text().strip()
+        case_no = self.case_no_input.text().strip()
+        filename_prefix = None
+        if subject_name or case_no:
+            # Combine subject name and case no with space
+            parts = []
+            if subject_name:
+                parts.append(subject_name)
+            if case_no:
+                parts.append(case_no)
+            filename_prefix = " ".join(parts)
+        
         # Start worker thread
-        self.worker_thread = TranscriptionWorker(self.transcriber, input_folder, output_folder, create_zip=True)
+        self.worker_thread = TranscriptionWorker(self.transcriber, input_folder, output_folder, create_zip=True, filename_prefix=filename_prefix)
         self.worker_thread.progress_update.connect(self.log)
         self.worker_thread.file_progress.connect(self.update_file_progress)
         self.worker_thread.finished.connect(self.transcription_finished)
@@ -1101,10 +1134,23 @@ class AudioTranscriberGUI(QMainWindow):
                     else:
                         self.log(message, "INFO")
                 
+                # Get filename prefix from input fields
+                subject_name = self.subject_name_input.text().strip()
+                case_no = self.case_no_input.text().strip()
+                filename_prefix = None
+                if subject_name or case_no:
+                    parts = []
+                    if subject_name:
+                        parts.append(subject_name)
+                    if case_no:
+                        parts.append(case_no)
+                    filename_prefix = " ".join(parts)
+                
                 html_path = create_html_report(
                     result['results'], output_folder, result['total_time'],
                     success_count, failure_count, dv_analysis=self.dv_analysis_results,
-                    progress_callback=html_progress_callback
+                    progress_callback=html_progress_callback,
+                    filename_prefix=filename_prefix
                 )
                 
                 # Recreate zip file with updated HTML report that includes wordlist results
@@ -1121,9 +1167,22 @@ class AudioTranscriberGUI(QMainWindow):
                                 else:
                                     self.log(message, "INFO")
                             
+                            # Get filename prefix from input fields
+                            subject_name = self.subject_name_input.text().strip()
+                            case_no = self.case_no_input.text().strip()
+                            filename_prefix = None
+                            if subject_name or case_no:
+                                parts = []
+                                if subject_name:
+                                    parts.append(subject_name)
+                                if case_no:
+                                    parts.append(case_no)
+                                filename_prefix = " ".join(parts)
+                            
                             updated_zip_path = self.transcriber.create_results_zip(
                                 input_folder, output_folder, 
-                                progress_callback=zip_progress_callback
+                                progress_callback=zip_progress_callback,
+                                filename_prefix=filename_prefix
                             )
                             if updated_zip_path:
                                 result['zip_path'] = updated_zip_path
@@ -1143,10 +1202,23 @@ class AudioTranscriberGUI(QMainWindow):
                     else:
                         self.log(message, "INFO")
                 
+                # Get filename prefix from input fields
+                subject_name = self.subject_name_input.text().strip()
+                case_no = self.case_no_input.text().strip()
+                filename_prefix = None
+                if subject_name or case_no:
+                    parts = []
+                    if subject_name:
+                        parts.append(subject_name)
+                    if case_no:
+                        parts.append(case_no)
+                    filename_prefix = " ".join(parts)
+                
                 html_path = create_html_report(
                     result['results'], output_folder, result['total_time'],
                     success_count, failure_count, dv_analysis=None,
-                    progress_callback=html_progress_callback
+                    progress_callback=html_progress_callback,
+                    filename_prefix=filename_prefix
                 )
             
             if html_path:

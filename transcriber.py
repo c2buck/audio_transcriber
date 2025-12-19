@@ -161,7 +161,8 @@ class AudioTranscriber:
                         progress_callback: Optional[Callable] = None,
                         file_progress_callback: Optional[Callable] = None,
                         create_zip: bool = True,
-                        cancellation_check: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
+                        cancellation_check: Optional[Callable[[], bool]] = None,
+                        filename_prefix: Optional[str] = None) -> Dict[str, Any]:
         """
         Transcribe all audio files in a directory using the selected backend.
         
@@ -192,7 +193,7 @@ class AudioTranscriber:
         
         # Delegate to unified transcriber which handles all the detailed processing
         result = self.unified_transcriber.transcribe_batch(
-            input_directory, output_directory, progress_callback, file_progress_callback, cancellation_check
+            input_directory, output_directory, progress_callback, file_progress_callback, cancellation_check, filename_prefix
         )
         
         # Create a zip file with results and audio files if requested
@@ -208,7 +209,7 @@ class AudioTranscriber:
                 progress_callback("Creating results package...")
             
             zip_path = self.create_results_zip(
-                input_directory, output_directory, progress_callback
+                input_directory, output_directory, progress_callback, filename_prefix
             )
             
             if zip_path:
@@ -288,7 +289,8 @@ class AudioTranscriber:
         return backend_info.models if backend_info else []
         
     def create_results_zip(self, input_directory: str, output_directory: str, 
-                          progress_callback: Optional[Callable] = None) -> str:
+                          progress_callback: Optional[Callable] = None,
+                          filename_prefix: Optional[str] = None) -> str:
         """
         Create a zip file containing the HTML report and audio files.
         
@@ -296,6 +298,7 @@ class AudioTranscriber:
             input_directory: Directory containing audio files
             output_directory: Directory containing transcription results
             progress_callback: Optional callback function(message, percentage) for progress updates
+            filename_prefix: Optional prefix to add to the filename (e.g., "Subject CaseNo")
             
         Returns:
             Path to the created zip file
@@ -319,7 +322,14 @@ class AudioTranscriber:
         try:
             # Copy HTML report to temp directory (5-10%)
             _progress("Copying HTML report to package...", 5)
-            html_report = Path(output_directory) / "transcription_report.html"
+            # Build HTML report filename with optional prefix
+            if filename_prefix and filename_prefix.strip():
+                import re
+                sanitized_prefix = re.sub(r'[<>:"/\\|?*]', '', filename_prefix.strip())
+                html_filename = f"{sanitized_prefix} transcription_report.html"
+            else:
+                html_filename = "transcription_report.html"
+            html_report = Path(output_directory) / html_filename
             if html_report.exists():
                 shutil.copy2(html_report, temp_dir)
                 _progress("HTML report copied to package", 10)
@@ -384,7 +394,14 @@ class AudioTranscriber:
             
             # Create zip file (90-98%)
             _progress("Creating zip archive...", 90)
-            zip_path = Path(output_directory) / "transcription_results.zip"
+            # Build ZIP filename with optional prefix
+            if filename_prefix and filename_prefix.strip():
+                import re
+                sanitized_prefix = re.sub(r'[<>:"/\\|?*]', '', filename_prefix.strip())
+                zip_filename = f"{sanitized_prefix} transcription_results.zip"
+            else:
+                zip_filename = "transcription_results.zip"
+            zip_path = Path(output_directory) / zip_filename
             
             # Count total files to add for progress tracking
             files_to_zip = list(temp_dir.rglob('*'))

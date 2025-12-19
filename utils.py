@@ -960,13 +960,15 @@ def escape_html(text: str) -> str:
 def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str, 
                       total_time: float, success_count: int, failure_count: int,
                       dv_analysis: Optional[Dict[str, Any]] = None,
-                      progress_callback: Optional[Callable[[str, int], None]] = None) -> str:
+                      progress_callback: Optional[Callable[[str, int], None]] = None,
+                      filename_prefix: Optional[str] = None) -> str:
     """
     Create an HTML report with all transcriptions, enhanced hyperlinks, and timestamped segments.
     
     Args:
         transcriptions: List of transcription results
         output_dir: Directory to save the HTML report
+        filename_prefix: Optional prefix to add to the filename (e.g., "Subject CaseNo")
         total_time: Total processing time
         success_count: Number of successful transcriptions
         failure_count: Number of failed transcriptions
@@ -1908,7 +1910,15 @@ def create_html_report(transcriptions: List[Dict[str, Any]], output_dir: str,
     
     # Save the HTML file
     _progress("Finalizing HTML report...", 90)
-    report_path = os.path.join(output_dir, "transcription_report.html")
+    # Build filename with optional prefix
+    if filename_prefix and filename_prefix.strip():
+        # Sanitize the prefix to remove invalid filename characters, but keep spaces
+        import re
+        sanitized_prefix = re.sub(r'[<>:"/\\|?*]', '', filename_prefix.strip())
+        filename = f"{sanitized_prefix} transcription_report.html"
+    else:
+        filename = "transcription_report.html"
+    report_path = os.path.join(output_dir, filename)
     try:
         with open(report_path, 'w', encoding='utf-8') as f:
             f.write(html_content)

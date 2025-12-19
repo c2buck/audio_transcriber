@@ -520,7 +520,8 @@ class UnifiedTranscriber:
     def transcribe_batch(self, input_directory: str, output_directory: str,
                         progress_callback: Optional[Callable] = None,
                         file_progress_callback: Optional[Callable] = None,
-                        cancellation_check: Optional[Callable[[], bool]] = None) -> Dict[str, Any]:
+                        cancellation_check: Optional[Callable[[], bool]] = None,
+                        filename_prefix: Optional[str] = None) -> Dict[str, Any]:
         """Transcribe all audio files in a directory."""
         from utils import get_audio_files, safe_filename, create_html_report
         from audio_converter import process_audio_files_for_web_compatibility
@@ -670,7 +671,8 @@ class UnifiedTranscriber:
             
             html_path = create_html_report(
                 results, output_directory, total_time, success_count, failure_count,
-                progress_callback=html_progress_wrapper
+                progress_callback=html_progress_wrapper,
+                filename_prefix=filename_prefix
             )
             if html_path and progress_callback:
                 progress_callback(f"✅ Created HTML report: {os.path.basename(html_path)}")
