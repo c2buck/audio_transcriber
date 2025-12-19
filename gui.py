@@ -165,8 +165,8 @@ class AudioTranscriberGUI(QMainWindow):
         transcription_tab = self.create_transcription_tab()
         self.tab_widget.addTab(transcription_tab, "🎙️ Transcription")
         
-        # Apply initial theme
-        self.apply_theme()
+        # Apply initial theme (dark by default)
+        self.apply_theme("dark")
     
     def create_menu_bar(self):
         """Create the application menu bar."""
@@ -1449,7 +1449,7 @@ class AudioTranscriberGUI(QMainWindow):
     
     def toggle_theme(self):
         """Toggle between dark and light themes."""
-        # Get current theme from stylesheet or default to light
+        # Get current theme from stylesheet to determine which theme to switch to
         current_stylesheet = self.styleSheet()
         current_theme = "dark" if current_stylesheet and "background-color: #2b2b2b" in current_stylesheet else "light"
         new_theme = "dark" if current_theme == "light" else "light"
@@ -1470,7 +1470,7 @@ class AudioTranscriberGUI(QMainWindow):
             self.wordlist_status_label.setStyleSheet("color: gray; font-size: 11px;")
             self.log("Wordlist analysis disabled", "INFO")
     
-    def apply_theme(self, theme="light"):
+    def apply_theme(self, theme="dark"):
         """Apply the selected theme."""
         
         if theme == "dark":
