@@ -392,6 +392,100 @@ class AudioTranscriber:
                 self._update_html_paths(temp_dir / html_report.name, "audio")
                 _progress("File paths updated in HTML report", 90)
             
+            # Create instructions file (88-89%)
+            _progress("Creating instructions file...", 88)
+            instructions_content = """INSTRUCTIONS FOR ACCESSING TRANSCRIPTION RESULTS
+====================================================
+
+INTEL ONLY - NOT FOR DISCLOSURE
+
+====================================================
+IMPORTANT: DO NOT MOVE THE DIRECTORY AFTER UNZIPPING
+====================================================
+
+The HTML file and audio files use relative paths. Moving the unzipped 
+folder will break the links between the HTML report and audio files.
+
+====================================================
+HOW TO ACCESS THE FILES
+====================================================
+
+1. Extract the .zip file to a location of your choice
+2. DO NOT move or rename the extracted folder after unzipping
+3. Navigate to the extracted folder
+4. Double-click the HTML file (transcription_report.html) to open it in your web browser
+
+====================================================
+HOW TO PLAY AUDIO
+====================================================
+
+1. Open the HTML file in your web browser
+2. Click on any segment in the transcript
+3. The audio will automatically play for that segment
+4. You can also use the audio player controls at the top of the page
+5. Audio files are located in the "audio" folder within the extracted directory
+
+====================================================
+SEARCHING THE DOCUMENT
+====================================================
+
+1. Press Ctrl+F (or Cmd+F on Mac) to open the search bar
+2. Type keywords or phrases you want to find
+3. The browser will highlight all matching text in the document
+4. Use the up/down arrows in the search bar to navigate between matches
+5. This is useful for finding words of interest during investigation
+
+====================================================
+SEGMENTS AND HIGHLIGHTING FEATURE
+====================================================
+
+1. The transcript is divided into clickable segments
+2. Clicking a segment will:
+   - Highlight the segment
+   - Play the corresponding audio
+   - Scroll to show the segment clearly
+3. Use this feature to:
+   - Review specific parts of the conversation
+   - Listen to audio while reading the transcript
+   - Navigate through long transcripts efficiently
+
+====================================================
+FILE STRUCTURE
+====================================================
+
+After extracting the .zip file, you will find:
+- transcription_report.html (main report file - open this first)
+- audio/ (folder containing all audio files)
+
+====================================================
+TROUBLESHOOTING
+====================================================
+
+If audio doesn't play:
+- Make sure you haven't moved the extracted folder
+- Check that the "audio" folder is in the same directory as the HTML file
+- Try refreshing the browser page (F5)
+- Ensure your browser allows audio playback
+
+If the HTML file doesn't open:
+- Right-click the HTML file and select "Open with" your preferred web browser
+- Recommended browsers: Chrome, Firefox, Edge, or Safari
+
+====================================================
+INTEL ONLY - NOT FOR DISCLOSURE
+====================================================
+"""
+            instructions_filename = "INSTRUCTIONS.txt"
+            instructions_path = temp_dir / instructions_filename
+            with open(instructions_path, 'w', encoding='utf-8') as f:
+                f.write(instructions_content)
+            _progress("Instructions file created", 89)
+            
+            # Also save instructions file next to the zip file
+            zip_instructions_path = Path(output_directory) / instructions_filename
+            with open(zip_instructions_path, 'w', encoding='utf-8') as f:
+                f.write(instructions_content)
+            
             # Create zip file (90-98%)
             _progress("Creating zip archive...", 90)
             # Build ZIP filename with optional prefix
