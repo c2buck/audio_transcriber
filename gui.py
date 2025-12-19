@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QGridLayout, QLabel, QPushButton, QFileDialog, QComboBox,
     QTextEdit, QProgressBar, QGroupBox, QFrame, QSplitter,
     QMessageBox, QStatusBar, QMenuBar, QMenu, QCheckBox,
-    QTabWidget, QScrollArea, QLineEdit
+    QTabWidget, QScrollArea, QLineEdit, QSizePolicy
 )
 from PySide6.QtCore import QThread, Signal, QTimer, Qt
 from PySide6.QtGui import QFont, QIcon, QAction, QPalette, QTextCursor
@@ -136,8 +136,8 @@ class AudioTranscriberGUI(QMainWindow):
     def init_ui(self):
         """Initialize the user interface."""
         self.setWindowTitle("Audio Transcriber - Whisper AI")
-        self.setMinimumSize(900, 700)
-        self.resize(1200, 800)
+        self.setMinimumSize(1200, 800)
+        self.resize(1600, 1000)
         
         # Create menu bar
         self.create_menu_bar()
@@ -220,8 +220,8 @@ class AudioTranscriberGUI(QMainWindow):
         progress_widget = self.create_progress_panel()
         splitter.addWidget(progress_widget)
         
-        # Set splitter proportions
-        splitter.setSizes([400, 500])
+        # Set splitter proportions (wider initial sizes to prevent squishing)
+        splitter.setSizes([600, 800])
         
         return tab_widget
     
@@ -257,7 +257,10 @@ class AudioTranscriberGUI(QMainWindow):
         file_layout.addWidget(QLabel("Input Folder:"), 0, 0)
         self.input_folder_label = QLabel("No folder selected")
         self.input_folder_label.setStyleSheet("background: #f0f0f0; padding: 8px; border: 1px solid #ccc; color: black;")
+        self.input_folder_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.input_folder_label.setMinimumWidth(200)
         file_layout.addWidget(self.input_folder_label, 0, 1)
+        file_layout.setColumnStretch(1, 1)  # Make folder label column expandable
         
         self.select_input_btn = QPushButton("Browse...")
         self.select_input_btn.clicked.connect(self.select_input_folder)
@@ -267,6 +270,8 @@ class AudioTranscriberGUI(QMainWindow):
         file_layout.addWidget(QLabel("Output Folder:"), 1, 0)
         self.output_folder_label = QLabel("No folder selected")
         self.output_folder_label.setStyleSheet("background: #f0f0f0; padding: 8px; border: 1px solid #ccc; color: black;")
+        self.output_folder_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.output_folder_label.setMinimumWidth(200)
         file_layout.addWidget(self.output_folder_label, 1, 1)
         
         self.select_output_btn = QPushButton("Browse...")
@@ -284,13 +289,16 @@ class AudioTranscriberGUI(QMainWindow):
         self.subject_name_input = QLineEdit()
         self.subject_name_input.setPlaceholderText("Enter subject name e.g. SMITH, John")
         self.subject_name_input.textChanged.connect(self.clear_subject_name_error)
+        self.subject_name_input.setMinimumWidth(250)
         naming_layout.addWidget(self.subject_name_input, 0, 1)
+        naming_layout.setColumnStretch(1, 1)  # Make input column expandable
         
         # Case No.
         naming_layout.addWidget(QLabel("Case No.:"), 1, 0)
         self.case_no_input = QLineEdit()
         self.case_no_input.setPlaceholderText("Enter case number e.g. CO25XXXXX, QP25XXXX")
         self.case_no_input.textChanged.connect(self.clear_case_no_error)
+        self.case_no_input.setMinimumWidth(250)
         naming_layout.addWidget(self.case_no_input, 1, 1)
         
         layout.addWidget(naming_group)
@@ -304,6 +312,7 @@ class AudioTranscriberGUI(QMainWindow):
         backend_selection_layout.addWidget(QLabel("Backend:"))
         
         self.backend_combo = QComboBox()
+        self.backend_combo.setMinimumWidth(200)
         self.backend_combo.currentTextChanged.connect(self.on_backend_changed)
         backend_selection_layout.addWidget(self.backend_combo)
         
@@ -326,6 +335,7 @@ class AudioTranscriberGUI(QMainWindow):
         model_info_layout.addWidget(QLabel("Model:"))
         
         self.model_combo = QComboBox()
+        self.model_combo.setMinimumWidth(200)
         self.model_combo.currentTextChanged.connect(self.on_model_changed)
         model_info_layout.addWidget(self.model_combo)
         
@@ -338,6 +348,7 @@ class AudioTranscriberGUI(QMainWindow):
         beam_layout.addWidget(QLabel("Beam Size:"))
         
         self.beam_size_combo = QComboBox()
+        self.beam_size_combo.setMinimumWidth(100)
         self.beam_size_combo.addItems(["1", "3", "5", "7", "10"])
         self.beam_size_combo.setCurrentText("1")
         self.beam_size_combo.currentTextChanged.connect(self.on_beam_size_changed)
@@ -367,6 +378,7 @@ class AudioTranscriberGUI(QMainWindow):
         language_selection_layout.addWidget(QLabel("Language:"))
         
         self.language_combo = QComboBox()
+        self.language_combo.setMinimumWidth(200)
         self.language_combo.addItem("Auto Detect", None)
         self.language_combo.addItem("English", "en")
         self.language_combo.currentTextChanged.connect(self.on_language_changed)
@@ -391,6 +403,7 @@ class AudioTranscriberGUI(QMainWindow):
         device_selection_layout.addWidget(QLabel("Device:"))
         
         self.device_combo = QComboBox()
+        self.device_combo.setMinimumWidth(200)
         self.device_combo.currentTextChanged.connect(self.on_device_changed)
         device_selection_layout.addWidget(self.device_combo)
         
